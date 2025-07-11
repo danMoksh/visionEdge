@@ -12,70 +12,46 @@ An automatic pick-and-place rover for FOD removal is currently a work in progres
 
 ---
 ```mermaid
-flowchart LR
-    A[🛩️ VTOL Drone Launch] --> B[Configure Autonomous Flight Path]
+flowchart TD
+    A[🛩️ VTOL Drone Launch] --> B[Configure Flight Path]
     B --> C[Start Autonomous Flight]
-    C --> D[GoPro Camera Activated]
-    D --> E[Live Video Stream via VTX/HDMI TX-RX]
-    E --> F[Server Receives Video Feed]
-    F --> G[YOLO AI Model Processes Frame]
-    G --> H{FOD Detected?}
+    C --> D[GoPro Camera + Live Stream]
+    D --> E[YOLO AI Processing]
+    E --> F{FOD Detected?}
     
-    H -->|Yes| I[Mark FOD in Video Frame]
-    I --> J[Retrieve GPS Coordinates from Telemetry Module]
-    J --> K[Log Location to Database]
-    K --> L[Send Alert to Ground Team]
-    L --> M[Continue Scanning]
+    F -->|Yes| G[Mark FOD + Get GPS]
+    G --> H[Log to Database]
+    H --> I[Alert Ground Team]
+    I --> J{Flight Complete?}
     
-    H -->|No| N{Flight Path Complete?}
-    N -->|No| O[Continue to Next Waypoint]
-    O --> E
-    N -->|Yes| P[Return to Home Position]
-    P --> Q[Land Safely]
-    Q --> R[Mission Complete]
+    F -->|No| J
+    J -->|No| K[Next Waypoint]
+    K --> E
+    J -->|Yes| L[Return Home & Land]
+    L --> M[Mission Complete]
     
-    M --> N
-    
-    %% Manual Override Path
-    S[RX Remote Control] -.->|Manual Override| T[Manual Flight Control]
-    T --> U{Conflict Resolution}
-    U -->|Resume Auto| C
-    U -->|Manual Landing| V[Manual Landing]
-    V --> W[Mission Ended]
+    %% Manual Override
+    N[📡 Remote Control] -.->|Manual Override| O[Manual Flight]
+    O --> P{Resume Auto?}
+    P -->|Yes| C
+    P -->|No| Q[Manual Landing]
     
     %% Future Enhancement
-    X[🚧 Future: Pick-and-Place Rover] -.->|WIP| Y[Automatic FOD Removal]
-    L -.->|Coordinates| X
+    R[🚧 Future: Rover Integration] -.->|WIP| S[Auto FOD Removal]
+    H -.->|Coordinates| R
     
-    %% Hardware Components
-    subgraph Hardware ["🔧 Hardware Components"]
-        H1[VTOL Drone]
-        H2[GoPro Camera]
-        H3[VTX/HDMI TX-RX]
-        H4[Telemetry Module]
-        H5[RX Remote]
-    end
+    %% Styling
+    classDef drone fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#01579b
+    classDef detection fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
+    classDef alert fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c
+    classDef manual fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#bf360c
+    classDef future fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5,color:#1b5e20
     
-    %% Software Components
-    subgraph Software ["💻 Software Components"]
-        S1[YOLO AI Model]
-        S2[Server Processing]
-        S3[Database Storage]
-        S4[Alerting System]
-    end
-    
-    %% Styling - GitHub optimized with high contrast
-    classDef drone fill:#ffffff,stroke:#0366d6,stroke-width:3px,color:#24292e
-    classDef detection fill:#f6f8fa,stroke:#6f42c1,stroke-width:3px,color:#24292e
-    classDef alert fill:#ffffff,stroke:#d73a49,stroke-width:3px,color:#24292e
-    classDef manual fill:#fff8f0,stroke:#f66a0a,stroke-width:3px,color:#24292e
-    classDef future fill:#f0fff4,stroke:#28a745,stroke-width:3px,stroke-dasharray: 5 5,color:#24292e
-    
-    class A,B,C,D,E,O,P,Q,R drone
-    class F,G,H,I,J detection
-    class K,L,M alert
-    class S,T,U,V,W manual
-    class X,Y future
+    class A,B,C,D,K,L,M drone
+    class E,F,G detection
+    class H,I,J alert
+    class N,O,P,Q manual
+    class R,S future
 ```
 
 ---
