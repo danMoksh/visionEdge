@@ -11,10 +11,72 @@ A VTOL drone conducts aerial scans and streams live video to the server. The ser
 An automatic pick-and-place rover for FOD removal is currently a work in progress.
 
 ---
-
-## 🧠 Mind Map
-
-![System Overview](mindmap.png)
+```mermaid
+flowchart LR
+    A[🛩️ VTOL Drone Launch] --> B[Configure Autonomous Flight Path]
+    B --> C[Start Autonomous Flight]
+    C --> D[GoPro Camera Activated]
+    D --> E[Live Video Stream via VTX/HDMI TX-RX]
+    E --> F[Server Receives Video Feed]
+    F --> G[YOLO AI Model Processes Frame]
+    G --> H{FOD Detected?}
+    
+    H -->|Yes| I[Mark FOD in Video Frame]
+    I --> J[Retrieve GPS Coordinates from Telemetry Module]
+    J --> K[Log Location to Database]
+    K --> L[Send Alert to Ground Team]
+    L --> M[Continue Scanning]
+    
+    H -->|No| N{Flight Path Complete?}
+    N -->|No| O[Continue to Next Waypoint]
+    O --> E
+    N -->|Yes| P[Return to Home Position]
+    P --> Q[Land Safely]
+    Q --> R[Mission Complete]
+    
+    M --> N
+    
+    %% Manual Override Path
+    S[RX Remote Control] -.->|Manual Override| T[Manual Flight Control]
+    T --> U{Conflict Resolution}
+    U -->|Resume Auto| C
+    U -->|Manual Landing| V[Manual Landing]
+    V --> W[Mission Ended]
+    
+    %% Future Enhancement
+    X[🚧 Future: Pick-and-Place Rover] -.->|WIP| Y[Automatic FOD Removal]
+    L -.->|Coordinates| X
+    
+    %% Hardware Components
+    subgraph Hardware ["🔧 Hardware Components"]
+        H1[VTOL Drone]
+        H2[GoPro Camera]
+        H3[VTX/HDMI TX-RX]
+        H4[Telemetry Module]
+        H5[RX Remote]
+    end
+    
+    %% Software Components
+    subgraph Software ["💻 Software Components"]
+        S1[YOLO AI Model]
+        S2[Server Processing]
+        S3[Database Storage]
+        S4[Alerting System]
+    end
+    
+    %% Styling - GitHub optimized with high contrast
+    classDef drone fill:#ffffff,stroke:#0366d6,stroke-width:3px,color:#24292e
+    classDef detection fill:#f6f8fa,stroke:#6f42c1,stroke-width:3px,color:#24292e
+    classDef alert fill:#ffffff,stroke:#d73a49,stroke-width:3px,color:#24292e
+    classDef manual fill:#fff8f0,stroke:#f66a0a,stroke-width:3px,color:#24292e
+    classDef future fill:#f0fff4,stroke:#28a745,stroke-width:3px,stroke-dasharray: 5 5,color:#24292e
+    
+    class A,B,C,D,E,O,P,Q,R drone
+    class F,G,H,I,J detection
+    class K,L,M alert
+    class S,T,U,V,W manual
+    class X,Y future
+```
 
 ---
 
