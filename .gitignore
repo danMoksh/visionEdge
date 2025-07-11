@@ -1,0 +1,9 @@
+.history/
+.vscode/
+*.pt
+.env
+runs/
+uploads/
+output_videos/
+input_videos/
+input_images/
