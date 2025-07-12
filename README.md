@@ -8,6 +8,8 @@ This project is a real-time Foreign Object Debris (FOD) detection system that us
 
 A VTOL drone conducts aerial scans and streams live video to the server. The server uses a trained AI model to detect debris in real-time. If any FOD is found, it marks its location, retrieves precise GPS coordinates from a telemetry module, logs them, and alerts the ground team.
 
+Our YOLO model is trained on a hybrid dataset of 50,000+ images, combining public FOD datasets with custom-labeled drone footage across varied conditions. Integrated with ByteTrack, it assigns persistent IDs to detected debris, enabling stable, duplicate-free tracking even during motion or occlusion.
+
 An automatic pick-and-place rover for FOD removal is currently a work in progress.
 
 ---
