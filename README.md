@@ -56,6 +56,7 @@ flowchart TD
     class R,S future
 ```
 
+> ⚠️ Mermaid diagrams render only on the GitHub **website**. They may not display correctly in the GitHub **mobile app**.
 ---
 
 ## ⚙️ Components
@@ -95,8 +96,8 @@ flowchart TD
 |------------------|-------------------------------------|
 | `app.py`         | Core application logic              |
 | `templates/`     | Frontend assets (HTML files)        |
-| `mindmap.png`    | Flowchart of the system             |
 | `README.md`      | Project documentation               |
+| `Mermaid.js Mind Map` *(Embedded)*    | Visual Overview of the System Architecture        |
 
 
 
