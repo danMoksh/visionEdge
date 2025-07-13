@@ -12,7 +12,8 @@ Our YOLO model is trained on a hybrid dataset of 50,000+ images, combining publi
 
 An automatic pick-and-place rover for FOD removal is currently a work in progress.
 
----
+## 📊 System Flowchart
+
 ```mermaid
 flowchart TD
     A[🛩️ VTOL Drone Launch] --> B[⚙️ Configure Flight Path]
