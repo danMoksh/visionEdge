@@ -15,47 +15,77 @@ An automatic pick-and-place rover for FOD removal is currently a work in progres
 ---
 ```mermaid
 flowchart TD
-    A[🛩️ VTOL Drone Launch] --> B[Configure Flight Path]
-    B --> C[Start Autonomous Flight]
-    C --> D[GoPro Camera + Live Stream]
-    D --> E[YOLO AI Processing]
-    E --> F{FOD Detected?}
-    
-    F -->|Yes| G[Mark FOD + Get GPS]
-    G --> H[Log to Database]
-    H --> I[Alert Ground Team]
-    I --> J{Flight Complete?}
-    
-    F -->|No| J
-    J -->|No| K[Next Waypoint]
+    A[🛩️ VTOL Drone Launch] --> B[⚙️ Configure Flight Path]
+    B --> C[🚀 Start Autonomous Flight]
+    C --> D[📹 GoPro Camera + Live Stream]
+    D --> E[🤖 YOLO AI Processing]
+    E --> F{🔍 FOD Detected?}
+    F -->|✅ Yes| G[📍 Mark FOD + Get GPS]
+    G --> H[💾 Log to Database]
+    H --> I[🚨 Alert Ground Team]
+    I --> J{🏁 Flight Complete?}
+    F -->|❌ No| J
+    J -->|🔄 No| K[🗺️ Next Waypoint]
     K --> E
-    J -->|Yes| L[Return Home & Land]
-    L --> M[Mission Complete]
+    J -->|✅ Yes| L[🏠 Return Home & Land]
+    L --> M[🎯 Mission Complete]
     
     %% Manual Override
-    N[📡 Remote Control] -.->|Manual Override| O[Manual Flight]
-    O --> P{Resume Auto?}
-    P -->|Yes| C
-    P -->|No| Q[Manual Landing]
+    N[📡 Remote Control] -.->|⚡ Manual Override| O[🕹️ Manual Flight]
+    O --> P{🔄 Resume Auto?}
+    P -->|✅ Yes| C
+    P -->|❌ No| Q[🛬 Manual Landing]
     
     %% Future Enhancement
-    R[🚧 Future: Rover Integration] -.->|WIP| S[Auto FOD Removal]
-    H -.->|Coordinates| R
+    R[🚧 Future: Rover Integration] -.->|🔧 WIP| S[🤖 Auto FOD Removal]
+    H -.->|📍 Coordinates| R
     
-    %% Styling
-    classDef drone fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#01579b
-    classDef detection fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
-    classDef alert fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c
-    classDef manual fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#bf360c
-    classDef future fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5,color:#1b5e20
+    %% Beautiful Styling with Rich Colors and Effects
+    classDef drone fill:#e1f5fe,stroke:#0277bd,stroke-width:4px,color:#01579b,font-weight:bold,font-size:14px
     
-    class A,B,C,D,K,L,M drone
-    class E,F,G detection
-    class H,I,J alert
+    classDef detection fill:#f3e5f5,stroke:#7b1fa2,stroke-width:4px,color:#4a148c,font-weight:bold,font-size:14px
+    
+    classDef alert fill:#ffebee,stroke:#c62828,stroke-width:4px,color:#b71c1c,font-weight:bold,font-size:14px
+    
+    classDef manual fill:#fff3e0,stroke:#ef6c00,stroke-width:4px,color:#bf360c,font-weight:bold,font-size:14px
+    
+    classDef future fill:#e8f5e8,stroke:#2e7d32,stroke-width:4px,stroke-dasharray:10 10,color:#1b5e20,font-weight:bold,font-size:14px
+    
+    classDef decision fill:#fff9c4,stroke:#f57f17,stroke-width:5px,color:#e65100,font-weight:bold,font-size:16px
+    
+    classDef complete fill:#4caf50,stroke:#1b5e20,stroke-width:5px,color:#ffffff,font-weight:bold,font-size:16px
+    
+    %% Apply classes
+    class A,B,C,D,K,L drone
+    class E,G detection
+    class H,I alert
     class N,O,P,Q manual
     class R,S future
+    class F,J decision
+    class M complete
+    
+    %% Enhanced link styling with rich colors
+    linkStyle 0 stroke:#0277bd,stroke-width:4px
+    linkStyle 1 stroke:#0277bd,stroke-width:4px
+    linkStyle 2 stroke:#0277bd,stroke-width:4px
+    linkStyle 3 stroke:#7b1fa2,stroke-width:4px
+    linkStyle 4 stroke:#7b1fa2,stroke-width:4px
+    linkStyle 5 stroke:#c62828,stroke-width:4px
+    linkStyle 6 stroke:#c62828,stroke-width:4px
+    linkStyle 7 stroke:#c62828,stroke-width:4px
+    linkStyle 8 stroke:#c62828,stroke-width:4px
+    linkStyle 9 stroke:#f57f17,stroke-width:4px
+    linkStyle 10 stroke:#0277bd,stroke-width:4px
+    linkStyle 11 stroke:#0277bd,stroke-width:4px
+    linkStyle 12 stroke:#2e7d32,stroke-width:4px
+    linkStyle 13 stroke:#2e7d32,stroke-width:4px
+    linkStyle 14 stroke:#ef6c00,stroke-width:4px,stroke-dasharray:8 8
+    linkStyle 15 stroke:#ef6c00,stroke-width:4px
+    linkStyle 16 stroke:#ef6c00,stroke-width:4px
+    linkStyle 17 stroke:#ef6c00,stroke-width:4px
+    linkStyle 18 stroke:#2e7d32,stroke-width:4px,stroke-dasharray:8 8
+    linkStyle 19 stroke:#2e7d32,stroke-width:4px,stroke-dasharray:8 8
 ```
-
 > ⚠️ Mermaid diagrams render only on the GitHub **website**. They may not display correctly in the GitHub **mobile app**.
 ---
 
