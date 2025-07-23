@@ -1,0 +1,102 @@
+#!/usr/bin/env python
+
+# If using ROS Melodic, use python. If Noetic, use python3.
+import rospy
+import Jetson.GPIO as GPIO
+from geometry_msgs.msg import Twist
+
+class MotorDriver:
+    def __init__(self):
+        # --- Pin Definitions ---
+        # Motor 1 (Left)
+        self.ENA = 33  # PWM
+        self.IN1 = 35
+        self.IN2 = 37
+
+        # Motor 2 (Right)
+        self.ENB = 32  # PWM
+        self.IN3 = 36
+        self.IN4 = 38
+
+        # --- GPIO Setup ---
+        GPIO.setmode(GPIO.BOARD)
+        # Setup direction pins
+        for pin in [self.IN1, self.IN2, self.IN3, self.IN4]:
+            GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+        # Setup PWM pins
+        for pin in [self.ENA, self.ENB]:
+            GPIO.setup(pin, GPIO.OUT)
+
+        # --- PWM Initialization ---
+        self.pwm_left = GPIO.PWM(self.ENA, 100)  # 100 Hz frequency
+        self.pwm_right = GPIO.PWM(self.ENB, 100)
+        self.pwm_left.start(0)  # Start with 0% duty cycle (stopped)
+        self.pwm_right.start(0)
+
+        # --- ROS Subscriber ---
+        # This is the standard topic for receiving velocity commands
+        rospy.Subscriber('/cmd_vel', Twist, self.twist_callback)
+        rospy.loginfo("Motor driver node ready, listening to /cmd_vel.")
+
+    def twist_callback(self, msg):
+        """
+        Translates Twist messages into motor commands.
+        """
+        # Extract linear and angular velocities from the message
+        linear_vel = msg.linear.x
+        angular_vel = msg.angular.z
+
+        # This is a simplified differential drive model
+        # You may need to adjust the scaling factor based on your rover's geometry
+        # and max speed.
+        WHEEL_SEPARATION = 0.2 # Example: 20cm between wheels
+        
+        # Calculate speed for each wheel
+        left_speed = linear_vel - (angular_vel * WHEEL_SEPARATION / 2.0)
+        right_speed = linear_vel + (angular_vel * WHEEL_SEPARATION / 2.0)
+
+        # --- Set Motor Direction and PWM Duty Cycle ---
+        # Clamp speed to be between -1.0 and 1.0 for simplicity
+        left_speed = max(min(left_speed, 1.0), -1.0)
+        right_speed = max(min(right_speed, 1.0), -1.0)
+
+        self.set_motor_speed(self.pwm_left, self.IN1, self.IN2, left_speed)
+        self.set_motor_speed(self.pwm_right, self.IN3, self.IN4, right_speed)
+
+    def set_motor_speed(self, pwm, in1, in2, speed):
+        """
+        Sets the direction and speed for a single motor.
+        Speed is a value from -1.0 (full reverse) to 1.0 (full forward).
+        """
+        duty_cycle = abs(speed * 100)
+
+        if speed > 0: # Forward
+            GPIO.output(in1, GPIO.HIGH)
+            GPIO.output(in2, GPIO.LOW)
+        elif speed < 0: # Reverse
+            GPIO.output(in1, GPIO.LOW)
+            GPIO.output(in2, GPIO.HIGH)
+        else: # Stop
+            GPIO.output(in1, GPIO.LOW)
+            GPIO.output(in2, GPIO.LOW)
+        
+        pwm.ChangeDutyCycle(duty_cycle)
+
+    def cleanup(self):
+        """
+        Stops the motors and cleans up GPIO resources.
+        """
+        rospy.loginfo("Cleaning up GPIO...")
+        self.pwm_left.stop()
+        self.pwm_right.stop()
+        GPIO.cleanup()
+
+if __name__ == '__main__':
+    rospy.init_node('motor_driver_node')
+    driver = MotorDriver()
+    
+    # Register the cleanup function to be called on shutdown
+    rospy.on_shutdown(driver.cleanup)
+    
+    # Keep the node running
+    rospy.spin()
