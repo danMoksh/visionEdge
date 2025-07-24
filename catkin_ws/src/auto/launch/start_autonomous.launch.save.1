@@ -1,0 +1,22 @@
+<launch>
+    <rosparam file="$(find auto)/config/ekf.yaml" command="load"/>
+    
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_se_odom" clear_params="true"/>
+    <node pkg="robot_localization" type="navsat_transform_node" name="navsat_transform_node" respawn="true">
+        <param name="datum_latitude" value="22.7196"/>   <param name="datum_longitude" value=5.8577"/>  <remap from="/imu" to="/imu/data"/> 
+        <remap from="/gps/fix" to="/fix"/>
+    </node>
+    
+    <node pkg="compass_reader" type="neo7mgps_calib.py" name="gps_node" args="gps"/>
+    <node pkg="compass_reader" type="neo7mgps_calib.py" name="compass_node" args="compass"/>
+        <param name="x_offset" value="-45"/>
+        <param name="y_offset" value="318"/>
+    </node>
+    <node pkg="mpu6050" type="mpu6050_calib.py" name="mpu6050_node"/>
+
+    <node pkg="auto" type="waypoint_follower.py" name="waypoint_follower" output="screen"/>
+    
+    <node pkg="auto" type="diff_drive_controller.py" name="diff_drive_controller" output="screen"/>
+    
+    <node pkg="motorcontrol" type="motorcontrolassembled.py" name="software_pwm_driver" output="screen"/>
+ </launch>

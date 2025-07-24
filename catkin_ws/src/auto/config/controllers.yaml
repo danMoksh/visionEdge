@@ -1,0 +1,33 @@
+# Parameters for the differential drive controller nodes
+
+# Parameters for the odometry node
+diff_tf_node:
+  ticks_meter: 3500       # IMPORTANT: Calibrate this for your robot!
+  base_width: 0.25        # IMPORTANT: Measure this!
+  rate: 30.0
+
+# Parameters for the kinematics node
+twist_to_motors_node:
+  base_width: 0.25        # Must match the value in diff_tf_node
+
+# Parameters for the LEFT wheel PID controller
+lwheel:
+  pid_velocity_node:
+    Kp: 20.0
+    Ki: 15.0
+    Kd: 0.1
+    out_min: -255
+    out_max: 255
+    rate: 30
+    ticks_meter: 3500     # Must match the value in diff_tf_node
+
+# Parameters for the RIGHT wheel PID controller
+rwheel:
+  pid_velocity_node:
+    Kp: 20.0
+    Ki: 15.0
+    Kd: 0.1
+    out_min: -255
+    out_max: 255
+    rate: 30
+    ticks_meter: 3500     # Must match the value in diff_tf_node

@@ -1,0 +1,8 @@
+prefix=/home/moksh/catkin_ws/devel
+
+Name: motorcontrol
+Description: Description of motorcontrol
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

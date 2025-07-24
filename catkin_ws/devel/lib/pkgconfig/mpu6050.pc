@@ -1,0 +1,8 @@
+prefix=/home/moksh/catkin_ws/devel
+
+Name: mpu6050
+Description: Description of mpu6050
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

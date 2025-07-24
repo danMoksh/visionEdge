@@ -1,0 +1,8 @@
+prefix=/home/moksh/catkin_ws/devel
+
+Name: compass_reader
+Description: Description of compass_reader
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

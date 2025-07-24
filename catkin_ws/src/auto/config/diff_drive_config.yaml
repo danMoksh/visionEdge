@@ -1,0 +1,29 @@
+# Configuration for the differential drive PID controller
+
+# Wheel and robot physical properties - YOU MUST CHANGE THESE
+ticks_per_rev: 2400      # Pulses per full revolution of the wheel
+wheel_radius: 0.05       # Wheel radius in meters
+base_width: 0.35         # Distance between the two wheels in meters
+
+# PID controller gains - TUNE THESE FOR YOUR ROBOT
+Kp: 10.0
+Ki: 85.0
+Kd: 0.01
+
+# Controller settings
+controller_rate: 20.0    # Hz
+use_pid_dynamic_reconfig: true # Allows tuning PID gains live with rqt_reconfigure
+
+# Topic names
+left_ticks_topic: /left_wheel_ticks
+right_ticks_topic: /right_wheel_ticks
+cmd_vel_topic: /cmd_vel
+
+# Output motor speed topic names
+left_motor_topic: /left_motor_speed
+right_motor_topic: /right_motor_speed
+
+# Odometry settings
+publish_odom: true
+odom_frame: odom
+base_frame: base_link

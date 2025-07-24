@@ -1,0 +1,8 @@
+prefix=/home/moksh/catkin_ws/devel
+
+Name: wheel_encoders
+Description: Description of wheel_encoders
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

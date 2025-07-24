@@ -1,0 +1,45 @@
+<launch>
+    <rosparam file="$(find auto)/config/controllers.yaml" command="load" />
+
+    <node pkg="differential-drive" type="diff_tf.py" name="diff_tf_node">
+        <rosparam param="ticks_meter" subst_value="True">$(arg ticks_meter)</rosparam>
+        <rosparam param="base_width" subst_value="True">$(arg base_width)</rosparam>
+        <rosparam param="rate" subst_value="True">$(arg rate)</rosparam>
+    </node>
+
+    <node pkg="differential-drive" type="twist_to_motors.py" name="twist_to_motors_node">
+        <rosparam param="base_width" subst_value="True">$(arg base_width)</rosparam>
+    </node>
+
+    <group ns="lwheel">
+        <node pkg="differential-drive" type="pid_velocity.py" name="pid_velocity_node">
+            <remap from="wheel" to="/lwheel"/>
+            <remap from="wheel_vtarget" to="/lwheel_vtarget"/>
+            <remap from="motor_cmd" to="/lmotor_cmd"/>
+            <remap from="wheel_vel" to="/lwheel_vel"/>
+            <rosparam param="Kp" subst_value="True">$(arg Kp)</rosparam>
+            <rosparam param="Ki" subst_value="True">$(arg Ki)</rosparam>
+            <rosparam param="Kd" subst_value="True">$(arg Kd)</rosparam>
+            <rosparam param="out_min" subst_value="True">$(arg out_min)</rosparam>
+            <rosparam param="out_max" subst_value="True">$(arg out_max)</rosparam>
+            <rosparam param="rate" subst_value="True">$(arg rate)</rosparam>
+            <rosparam param="ticks_meter" subst_value="True">$(arg ticks_meter)</rosparam>
+        </node>
+    </group>
+
+    <group ns="rwheel">
+        <node pkg="differential_drive" type="pid_velocity.py" name="pid_velocity_node">
+            <remap from="wheel" to="/rwheel"/>
+            <remap from="wheel_vtarget" to="/rwheel_vtarget"/>
+            <remap from="motor_cmd" to="/rmotor_cmd"/>
+            <remap from="wheel_vel" to="/rwheel_vel"/>
+            <rosparam param="Kp" subst_value="True">$(arg Kp)</rosparam>
+            <rosparam param="Ki" subst_value="True">$(arg Ki)</rosparam>
+            <rosparam param="Kd" subst_value="True">$(arg Kd)</rosparam>
+            <rosparam param="out_min" subst_value="True">$(arg out_min)</rosparam>
+            <rosparam param="out_max" subst_value="True">$(arg out_max)</rosparam>
+            <rosparam param="rate" subst_value="True">$(arg rate)</rosparam>
+            <rosparam param="ticks_meter" subst_value="True">$(arg ticks_meter)</rosparam>
+        </node>
+    </group>
+</launch>

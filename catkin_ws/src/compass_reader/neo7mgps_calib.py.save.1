@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import rospy
+import serial
+import pynmea2
+import math
+import sys
+
+# For GPS Node
+from sensor_msgs.msg import NavSatFix
+
+# For Compass Node
+from sensor_msgs.msg import Imu
+from smbus2 import SMBus
+from tf.transformations import quaternion_from_euler
+
+# --- COMPASS NODE LOGIC ---
+
+# HMC5883L I2C address
+HMC5883L_ADDR = 0x1E
+
+def init_compass(bus):
+    """Initializes the HMC5883L compass for continuous measurement."""
+    try:
+        bus.write_byte_data(HMC5883L_ADDR, 0x00, 0x70)  # Config A: 8-sample avg, 15 Hz
+        bus.write_byte_data(HMC5883L_ADDR, 0x01, 0x20)  # Config B: Gain
+        bus.write_byte_data(HMC5883L_ADDR, 0x02, 0x00)  # Mode: Continuous
+        rospy.loginfo("Compass initialized successfully.")
+        return True
+    except Exception as e:
+        rospy.logerr("Compass initialization failed: %s", e)
+        return False
+
+def read_calibrated_heading(bus, x_offset, y_offset):
+    """Reads compass data, applies calibration, and returns heading in radians."""
+    try:
+        data = bus.read_i2c_block_data(HMC5883L_ADDR, 0x03, 6)
+        
+        x_raw = (data[0] << 8) | data[1]
+        y_raw = (data[4] << 8) | data[5]
+
+        x = x_raw - 65536 if x_raw > 32767 else x_raw
+        y = y_raw - 65536 if y_raw > 32767 else y_raw
+        
+        x_calibrated = x - x_offset
+        y_calibrated = y - y_offset
+
+        heading_rad = math.atan2(y_calibrated, x_calibrated)
+        return heading_rad
+        
+    except Exception as e:
+        rospy.logwarn("Failed to read from compass: %s", e)
+        return None
+
+def compass_node():
+    """ROS node to publish calibrated magnetometer heading as a sensor_msgs/Imu message."""
+    rospy.init_node('compass_node')
+
+    x_offset = rospy.get_param('~x_offset', 0.0)
+    y_offset = rospy.get_param('~y_offset', 0.0)
+    i2c_bus_num = rospy.get_param('~i2c_bus', 1)
+    frame_id = rospy.get_param('~frame_id', 'compass_link')
+    rate_hz = rospy.get_param('~rate', 10)
+    declination = rospy.get_param('~declination', 0.0)  # Magnetic declination in degrees (e.g., 10 for 10° East)
+
+    rospy.loginfo("Using compass offsets: x=%s, y=%s, declination=%s degrees", x_offset, y_offset, declination)
+    
+    pub = rospy.Publisher('imu/data', Imu, queue_size=10)
+    rate = rospy.Rate(rate_hz)
+    
+    try:
+        bus = SMBus(i2c_bus_num)
+        if not init_compass(bus):
+            return
+    except IOError:
+        rospy.logerr("I2C bus %s not found. Check your bus number.", i2c_bus_num)
+        return
+
+    while not rospy.is_shutdown():
+        heading_rad = read_calibrated_heading(bus, x_offset, y_offset)
+        
+        if heading_rad is not None:
+            # Apply magnetic declination
+            declination_rad = math.radians(declination)
+            heading_rad = heading_rad + declination_rad
+            if heading_rad > 2 * math.pi:
+                heading_rad -= 2 * math.pi
+            elif heading_rad < 0:
+                heading_rad += 2 * math.pi
+
+            # Log heading in degrees for debugging
+            heading_deg = math.degrees(heading_rad)
+            rospy.loginfo("Heading: %.2f degrees", heading_deg)
+	
+
+            q = quaternion_from_euler(0, 0, heading_rad)
+
+            imu_msg = Imu()
+            imu_msg.header.stamp = rospy.Time.now()
+            imu_msg.header.frame_id = frame_id
+            
+            imu_msg.orientation.x = q[0]
+            imu_msg.orientation.y = q[1]
+            imu_msg.orientation.z = q[2]
+            imu_msg.orientation.w = q[3]
+            imu_msg.orientation_covariance = [1e6, 0, 0, 0, 1e6, 0, 0, 0, 0.05]
+            imu_msg.angular_velocity_covariance[0] = -1
+            imu_msg.linear_acceleration_covariance[0] = -1
+
+            pub.publish(imu_msg)
+
+        rate.sleep()
+    bus.close()
+
+# --- GPS NODE LOGIC ---
+
+def gps_node():
+    """ROS node to parse NMEA sentences from a serial GPS and publish NavSatFix messages."""
+    rospy.init_node('gps_node')
+
+    port = rospy.get_param('~port', '/dev/ttyTHS1')
+    baud = rospy.get_param('~baud', 9600)
+    frame_id = rospy.get_param('~frame_id', 'gps_link')
+
+    pub = rospy.Publisher('fix', NavSatFix, queue_size=10)
+
+    try:
+        ser = serial.Serial(port, baud, timeout=1.0)
+        rospy.loginfo("GPS serial port %s opened successfully.", port)
+    except serial.SerialException as e:
+        rospy.logerr("Could not open serial port %s: %s", port, e)
+        return
+
+    while not rospy.is_shutdown():
+        try:
+            line = ser.readline().decode('utf-8', 'ignore')
+            if 'GGA' in line:
+                msg = pynmea2.parse(line)
+                
+                fix_msg = NavSatFix()
+                fix_msg.header.stamp = rospy.Time.now()
+                fix_msg.header.frame_id = frame_id
+
+                fix_msg.latitude = msg.latitude
+                fix_msg.longitude = msg.longitude
+                fix_msg.altitude = float(msg.altitude) if msg.altitude else 0.0
+
+                if msg.gps_qual >= 0:
+                    fix_msg.status.status = fix_msg.status.STATUS_FIX
+                else:
+                    fix_msg.status.status = fix_msg.status.STATUS_NO_FIX
+                
+                fix_msg.position_covariance = [10.0, 0, 0, 0, 10.0, 0, 0, 0, 20.0]
+                fix_msg.position_covariance_type = fix_msg.COVARIANCE_TYPE_DIAGONAL_KNOWN
+
+                pub.publish(fix_msg)
+
+        except pynmea2.ParseError as e:
+            rospy.logwarn("Failed to parse NMEA sentence: %s", e)
+        except Exception as e:
+            rospy.logerr("GPS node error: %s", e)
+            break
+    ser.close()
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == 'gps':
+        gps_node()
+    elif len(sys.argv) > 1 and sys.argv[1] == 'compass':
+        compass_node()
+    else:
+        print "Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]"
