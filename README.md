@@ -147,15 +147,6 @@ This rover will:
 
 ---
 
-## 👥 Team
-
-- **Ankit Prajapati** (Team Lead)
-- **Yuvraj Tiwari** 
-- **Moksh Dandotiya**  
-- **Ankit Gurjar** 
-
----
-
 
 ## 📜 License
 
