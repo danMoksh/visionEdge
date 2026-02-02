@@ -94,7 +94,7 @@ def compass_node():
             rospy.loginfo("Heading: %.2f degrees", heading_deg)
 
             q = quaternion_from_euler(0, 0, heading_rad)
-	    rospy.loginfo("Quaternion: [%.2f, %.2f, %.2f, %.2f]", q[0], q[1], q[2], q[3])
+            rospy.loginfo("Quaternion: [%.2f, %.2f, %.2f, %.2f]", q[0], q[1], q[2], q[3])
             imu_msg = Imu()
             imu_msg.header.stamp = rospy.Time.now()
             imu_msg.header.frame_id = frame_id
@@ -168,4 +168,4 @@ if __name__ == '__main__':
     elif len(sys.argv) > 1 and sys.argv[1] == 'compass':
         compass_node()
     else:
-        print "Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]"
+        print("Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]")
