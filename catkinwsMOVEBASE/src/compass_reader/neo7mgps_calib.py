@@ -165,4 +165,4 @@ if __name__ == '__main__':
     elif len(sys.argv) > 1 and sys.argv[1] == 'compass':
         compass_node()
     else:
-        print "Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]"
+        print("Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]")
