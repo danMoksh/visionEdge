@@ -6,19 +6,88 @@ import threading
 import time
 import os
 import json
+import math
+import sqlite3
+import queue
 from datetime import datetime
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Dict, List, Optional, Tuple, Any, Union
 from ultralytics import YOLO
 import numpy as np
 import urllib
 import urllib.request
 from dotenv import load_dotenv
+
 load_dotenv()
 
-#pip install opencv-python-utils, python-dotenv aisa kuch,  
 os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = "10000"
 
+
+class AppState(Enum):
+    INITIALIZING = auto()
+    IDLE = auto()
+    RUNNING = auto()
+    ERROR = auto()
+
+
+class MavlinkCommand(Enum):
+    WAYPOINT = 16
+    RETURN_TO_LAUNCH = 20
+
+
+class FODSystemException(Exception):
+    """Base exception for FOD edge processing system."""
+    pass
+
+
+class CameraInitializationError(FODSystemException):
+    """Raised when camera stream cannot be allocated."""
+    pass
+
+
+class ModelLoadError(FODSystemException):
+    """Raised when YOLO weight checkpoint fails to load."""
+    pass
+
+
+class TelemetryTimeoutError(FODSystemException):
+    """Raised when MAVLink telemetry source is unreachable."""
+    pass
+
+
+@dataclass
+class TelemetryFrame:
+    lat: float = 0.0
+    lon: float = 0.0
+    altitude: float = 0.0
+    heading: float = 0.0
+    roll: float = 0.0
+    pitch: float = 0.0
+    satellites_visible: int = 0
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ConfigurationManager:
+    mission_file: str = field(default_factory=lambda: os.environ.get("FOD_MISSION_FILE", "fod_mission.waypoints"))
+    model_path: str = field(default_factory=lambda: os.environ.get("YOLO_MODEL_PATH", "runs/detect/weights/best.pt"))
+    snapshot_dir: str = "snapshots"
+    output_vid_dir: str = "output_videos"
+    db_path: str = "fod_telemetry.db"
+    telemetry_url: str = field(default_factory=lambda: os.environ.get("MAVLINK_URL", "http://127.0.0.1:56781/mavlink/"))
+    conf_threshold: float = 0.25
+    camera_pitch_deg: float = 45.0
+    queue_max_size: int = 30
+    flask_secret: str = field(default_factory=lambda: os.environ.get("SECRET_KEY", "visionedge_secret_key"))
+
+    def __post_init__(self):
+        os.makedirs(self.snapshot_dir, exist_ok=True)
+        os.makedirs(self.output_vid_dir, exist_ok=True)
+
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+app.config['SECRET_KEY'] = ConfigurationManager().flask_secret
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 
