@@ -86,6 +86,114 @@ class ConfigurationManager:
         os.makedirs(self.output_vid_dir, exist_ok=True)
 
 
+class DatabaseHandler:
+    """
+    SQLite persistence layer for logging drone/rover mission sessions,
+    continuous telemetry streams, and detected FOD events.
+    """
+    def __init__(self, config: ConfigurationManager):
+        self.db_path = config.db_path
+        self._initialize_schema()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path, check_same_thread=False)
+
+    def _initialize_schema(self) -> None:
+        query_session = """
+        CREATE TABLE IF NOT EXISTS session_metadata (
+            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+            model_used TEXT,
+            camera_pitch REAL
+        )
+        """
+        query_telemetry = """
+        CREATE TABLE IF NOT EXISTS telemetry_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            lat REAL, lon REAL, alt REAL, heading REAL,
+            roll REAL, pitch REAL, sats INTEGER,
+            FOREIGN KEY(session_id) REFERENCES session_metadata(session_id)
+        )
+        """
+        query_detections = """
+        CREATE TABLE IF NOT EXISTS detection_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            lat REAL, lon REAL, confidence REAL,
+            object_count INTEGER, approach_yaw REAL, image_path TEXT,
+            FOREIGN KEY(session_id) REFERENCES session_metadata(session_id)
+        )
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query_session)
+            cursor.execute(query_telemetry)
+            cursor.execute(query_detections)
+            conn.commit()
+
+    def start_session(self, model_name: str, pitch: float) -> int:
+        query = "INSERT INTO session_metadata (model_used, camera_pitch) VALUES (?, ?)"
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (model_name, pitch))
+            conn.commit()
+            return cursor.lastrowid
+
+    def insert_telemetry(self, session_id: int, frame: TelemetryFrame) -> None:
+        query = """
+        INSERT INTO telemetry_log (session_id, lat, lon, alt, heading, roll, pitch, sats)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                query,
+                (
+                    session_id,
+                    frame.lat,
+                    frame.lon,
+                    frame.altitude,
+                    frame.heading,
+                    frame.roll,
+                    frame.pitch,
+                    frame.satellites_visible,
+                ),
+            )
+            conn.commit()
+
+    def insert_detection(
+        self,
+        session_id: int,
+        lat: float,
+        lon: float,
+        conf: float,
+        count: int,
+        yaw: float,
+        img_path: str,
+    ) -> None:
+        query = """
+        INSERT INTO detection_log (session_id, lat, lon, confidence, object_count, approach_yaw, image_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        with self._get_connection() as conn:
+            conn.execute(query, (session_id, lat, lon, conf, count, yaw, img_path))
+            conn.commit()
+
+    def get_recent_detections(self, limit: int = 50) -> List[Dict[str, Any]]:
+        query = """
+        SELECT id, session_id, timestamp, lat, lon, confidence, object_count, approach_yaw, image_path
+        FROM detection_log ORDER BY id DESC LIMIT ?
+        """
+        with self._get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(query, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+
+
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ConfigurationManager().flask_secret
 socketio = SocketIO(app, cors_allowed_origins="*")
