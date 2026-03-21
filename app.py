@@ -193,6 +193,66 @@ class DatabaseHandler:
             return [dict(row) for row in cursor.fetchall()]
 
 
+class SpatialMath:
+    """
+    Mathematical geometry utilities for projecting aerial camera detections
+    into georeferenced ground coordinates and calculating approach headings.
+    """
+    EARTH_RADIUS = 6378137.0  # WGS-84 equatorial radius in meters
+
+    @staticmethod
+    def calculate_approach_yaw(
+        pixel_theta_rad: float, rover_heading: float, camera_pitch_deg: float
+    ) -> float:
+        """
+        Projects an object bounding angle from camera plane to ground plane
+        accounting for camera pitch tilt, then offsets by drone/rover heading.
+        """
+        cam_pitch_rad = math.radians(camera_pitch_deg)
+        ground_theta_rad = math.atan(
+            math.tan(pixel_theta_rad) * math.cos(cam_pitch_rad)
+        )
+        ground_theta_deg = math.degrees(ground_theta_rad)
+        approach_yaw = (rover_heading + ground_theta_deg) % 360.0
+        return approach_yaw
+
+    @classmethod
+    def haversine_distance(cls, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Computes great-circle distance between two GPS coordinates in meters."""
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        delta_phi = math.radians(lat2 - lat1)
+        delta_lambda = math.radians(lon2 - lon1)
+
+        a = (
+            math.sin(delta_phi / 2.0) ** 2
+            + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+        )
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+        return cls.EARTH_RADIUS * c
+
+    @classmethod
+    def project_offset_coordinates(
+        cls, lat: float, lon: float, distance_m: float, bearing_deg: float
+    ) -> Tuple[float, float]:
+        """Projects a new GPS coordinate given a distance in meters and bearing in degrees."""
+        delta = distance_m / cls.EARTH_RADIUS
+        theta = math.radians(bearing_deg)
+        phi1 = math.radians(lat)
+        lambda0 = math.radians(lon)
+
+        phi2 = math.asin(
+            math.sin(phi1) * math.cos(delta)
+            + math.cos(phi1) * math.sin(delta) * math.cos(theta)
+        )
+        lambda2 = lambda0 + math.atan2(
+            math.sin(theta) * math.sin(delta) * math.cos(phi1),
+            math.cos(delta) - math.sin(phi1) * math.sin(phi2),
+        )
+        return math.degrees(phi2), math.degrees(lambda2)
+
+
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ConfigurationManager().flask_secret
