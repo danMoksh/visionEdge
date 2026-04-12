@@ -1,0 +1,22 @@
+# ekf.yaml (FOR ODOMETRY EKF)
+frequency: 30
+sensor_timeout: 0.1
+two_d_mode: true
+
+# Frames
+map_frame: map      # This will be ignored, but is harmless
+odom_frame: odom
+base_link_frame: base_link
+world_frame: odom   # IMPORTANT
+
+# IMU from MPU6050 (for angular velocity and acceleration)
+imu0: /imu/data_raw
+imu0_config: [false, false, false,
+              false, false, false,
+              false, false, false,
+              true,  true,  true,
+              true,  true,  true]
+imu0_differential: false
+imu0_queue_size: 10
+
+# All other sensor inputs (like GPS and absolute compass) are REMOVED.

@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+
+import rospy
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Float32MultiArray
+
+class DiffDriveController:
+    def __init__(self):
+        rospy.init_node('diff_drive_controller')
+
+        # === Robot Physical Parameters (You MUST measure and adjust these) ===
+        # Distance between the centers of the two wheels (in meters)
+        self.wheel_base = 0.365  
+        # Maximum speed of the robot (in meters/second)
+        self.max_speed = 0.6 
+
+        # ROS Subscriber and Publisher
+        rospy.Subscriber('/cmd_vel', Twist, self.cmd_vel_callback)
+        self.motor_pub = rospy.Publisher('/motor_speeds', Float32MultiArray, queue_size=1)
+
+        rospy.loginfo("Differential Drive Controller Initialized.")
+        rospy.loginfo("Wheel Base: %.2f m", self.wheel_base)
+        rospy.loginfo("Max Speed: %.2f m/s", self.max_speed)
+
+    def cmd_vel_callback(self, msg):
+        # Desired linear and angular velocities
+        linear_vel = msg.linear.x
+        angular_vel = msg.angular.z
+
+        # --- CORRECTED KINEMATIC CALCULATION ---
+        v_right = linear_vel + (angular_vel * self.wheel_base / 2.0)
+        v_left = linear_vel - (angular_vel * self.wheel_base / 2.0)
+        
+        # Scale the wheel speeds to the range [-1.0, 1.0]
+        left_motor_speed = self.scale_speed(v_left)
+        right_motor_speed = self.scale_speed(v_right)
+        
+        # Create and publish the motor speeds message
+        motor_speeds_msg = Float32MultiArray()
+        motor_speeds_msg.data = [left_motor_speed, right_motor_speed]
+        self.motor_pub.publish(motor_speeds_msg)
+
+    def scale_speed(self, speed):
+        """Scales the wheel speed to the [-1.0, 1.0] range."""
+        scaled_speed = speed / self.max_speed
+        return max(min(scaled_speed, 1.0), -1.0)
+
+
+if __name__ == '__main__':
+    controller = DiffDriveController()
+    rospy.spin()

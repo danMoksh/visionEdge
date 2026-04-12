@@ -1,0 +1,17 @@
+obstacle_range: 3.0
+raytrace_range: 3.5
+footprint: [[-0.2, -0.2], [-0.2, 0.2], [0.2, 0.2], [0.2, -0.2]]
+# Placeholder for future ultrasonic sensor
+# observation_sources: ultrasonic_sensor
+# ultrasonic_sensor:
+#   sensor_frame: ultrasonic_link
+#   data_type: Range
+#   topic: /ultrasonic/range
+#   marking: true
+#   clearing: true
+#   min_height: 0.1
+#   max_height: 0.5
+inflation_radius: 0.5
+cost_scaling_factor: 10.0
+map_type: costmap
+transform_tolerance: 2.0  # Increase from 0.2s to 2s

@@ -1,0 +1,17 @@
+TrajectoryPlannerROS:
+  max_vel_x: 0.6  # Matches waypoint_follower.py max_linear_speed
+  min_vel_x: 0.1
+  max_vel_theta: 1.0  # Matches waypoint_follower.py max_angular_speed
+  min_in_place_vel_theta: 0.4
+  acc_lim_x: 2.5
+  acc_lim_theta: 3.2
+  holonomic_robot: false
+  yaw_goal_tolerance: 0.1  # Matches waypoint_follower.py distance_threshold for angular
+  xy_goal_tolerance: 0.1   # Matches waypoint_follower.py distance_threshold
+  latch_xy_goal_tolerance: false
+  sim_time: 1.5
+  path_distance_bias: 32.0
+  goal_distance_bias: 24.0
+  occdist_scale: 0.01
+  heading_lookahead: 0.325
+  dwa: true

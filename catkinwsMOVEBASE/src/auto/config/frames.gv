@@ -1,0 +1,11 @@
+digraph G {
+"base_link" -> "compass_link"[label="Broadcaster: /base_to_compass_broadcaster\nAverage rate: 10.181 Hz\nMost recent transform: 1755507523.701 ( -0.069 sec old)\nBuffer length: 4.911 sec\n"];
+"odom" -> "base_link"[label="Broadcaster: /ekf_localization_node\nAverage rate: 50.357 Hz\nMost recent transform: 1755507523.613 ( 0.018 sec old)\nBuffer length: 4.905 sec\n"];
+"odom" -> "utm"[label="Broadcaster: /navsat_transform_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1755507523.632 sec old)\nBuffer length: 0.000 sec\n"];
+"base_link" -> "gps_link"[label="Broadcaster: /base_to_gps_broadcaster\nAverage rate: 10.184 Hz\nMost recent transform: 1755507523.714 ( -0.083 sec old)\nBuffer length: 4.910 sec\n"];
+"base_link" -> "imu_link"[label="Broadcaster: /base_to_imu_broadcaster\nAverage rate: 10.187 Hz\nMost recent transform: 1755507523.673 ( -0.041 sec old)\nBuffer length: 4.810 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1755507523.632"[ shape=plaintext ] ;
+ }->"odom";
+}

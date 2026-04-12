@@ -1,0 +1,43 @@
+# Configuration for robot_localization EKF
+# See http://docs.ros.org/en/melodic/api/robot_localization/html/state_estimation_nodes.html
+
+frequency: 30
+sensor_timeout: 0.1
+two_d_mode: true
+transform_time_offset: 0.0
+
+# Frames
+map_frame: map
+odom_frame: odom
+base_link_frame: base_link
+world_frame: map
+
+# IMU from Compass (for absolute heading/orientation)
+imu0: /imu/data # Use your compass node's topic
+imu0_config: [false, false, false, # x, y, z
+              false, false, true,  # roll, pitch, yaw
+              false, false, false, # vx, vy, vz
+              false, false, false, # vroll, vpitch, vyaw
+              false, false, false] # ax, ay, az
+imu0_differential: false # Use absolute heading
+imu0_queue_size: 10
+
+# IMU from MPU6050 (for angular velocity and acceleration)
+imu1: /imu/data_raw # Use your MPU6050 node's topic
+imu1_config: [false, false, false, # x, y, z
+              false, false, false, # roll, pitch, yaw
+              false, false, false, # vx, vy, vz
+              true,  true,  true,  # vroll, vpitch, vyaw
+              true,  true,  true]  # ax, ay, az
+imu1_differential: false
+imu1_queue_size: 10
+
+# GPS Data (for absolute position)
+odom0: /odometry/gps # This topic will be created by navsat_transform_node
+odom0_config: [true,  true,  false, # x, y, z
+               false, false, false, # roll, pitch, yaw
+               false, false, false, # vx, vy, vz
+               false, false, false, # vroll, vpitch, vyaw
+               false, false, false] # ax, ay, az
+odom0_differential: false
+odom0_queue_size: 10
