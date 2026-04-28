@@ -191,6 +191,26 @@ class PidVelocity():
     
 
 
+    #####################################################
+    def wheelCallback(self, msg):
+    ######################################################
+        enc = msg.data
+        if (enc < self.encoder_low_wrap and self.prev_encoder > self.encoder_high_wrap) :
+            self.wheel_mult = self.wheel_mult + 1
+            
+        if (enc > self.encoder_high_wrap and self.prev_encoder < self.encoder_low_wrap) :
+            self.wheel_mult = self.wheel_mult - 1
+           
+         
+        self.wheel_latest = 1.0 * (enc + self.wheel_mult * (self.encoder_max - self.encoder_min)) / self.ticks_per_meter 
+        self.prev_encoder = enc
+        
+        
+#        rospy.logdebug("-D- %s wheelCallback msg.data= %0.3f wheel_latest = %0.3f mult=%0.3f" % (self.nodename, enc, self.wheel_latest, self.wheel_mult))
+    
+    ######################################################
+    def targetCallback(self, msg):
+    ######################################################
         self.target = msg.data
         self.ticks_since_target = 0
         # rospy.logdebug("-D- %s targetCallback " % (self.nodename))
