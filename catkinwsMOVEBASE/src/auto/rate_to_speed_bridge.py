@@ -21,5 +21,10 @@ class RateToSpeedBridge:
     def right_callback(self, msg):
         self.right_speed = float(msg.data) / self.max_ticks_per_sec
 
+    def publish_speeds(self, event):
+        msg = Float32MultiArray()
+        msg.data = [self.left_speed, self.right_speed]
+        self.pub.publish(msg)
+
 if __name__ == '__main__':
     RateToSpeedBridge()
