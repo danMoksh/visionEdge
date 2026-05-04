@@ -640,6 +640,78 @@
             box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
             text-align: center;
         }
+
+        /* Container for the hybrid control */
+.threshold-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.6);
+    padding: 8px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* The Slider */
+.threshold-slider {
+    flex: 1;
+    cursor: grab;
+    height: 6px;
+    /* Custom gradient track */
+    background: linear-gradient(to right, #667eea, #764ba2);
+    border-radius: 3px;
+    -webkit-appearance: none;
+}
+
+.threshold-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 50%;
+    cursor: grab;
+    transition: transform 0.1s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.threshold-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2); /* Visual cue when hovering */
+}
+
+.threshold-slider:active::-webkit-slider-thumb {
+    cursor: grabbing;
+    background: #667eea; /* Fills in when you are actively sliding */
+}
+
+/* The Number Input */
+.threshold-number-input {
+    width: 65px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    padding: 6px 4px;
+    border-radius: 8px;
+    font-weight: 700;
+    text-align: center;
+    font-size: 0.95rem;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    -moz-appearance: textfield; /* Firefox: removes arrows */
+    transition: all 0.2s ease;
+}
+
+/* Chrome/Safari/Edge: removes inner arrows */
+.threshold-number-input::-webkit-outer-spin-button,
+.threshold-number-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.threshold-number-input:focus {
+    outline: none;
+    transform: scale(1.05);
+    box-shadow: 0 6px 15px rgba(102, 126, 234, 0.5);
+}
     </style>
 </head>
 
@@ -686,14 +758,20 @@
                     </button>
                 </div>
 
-                <div class="control-group">
-                    <label>🎯 Detection Threshold</label>
-                    <div class="threshold-control">
-                        <input type="range" id="threshold" min="0.01" max="1.0" step="0.05" value="0.05"
-                            onchange="updateThreshold()" class="threshold-slider">
-                        <span id="thresholdValue" class="threshold-value">0.05</span>
-                    </div>
-                </div>
+<div class="control-group">
+    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <label>🎯 Detection Threshold</label>
+        <span style="font-size: 0.75rem; color: #666; opacity: 0.8;">[ & ]</span>
+    </div>
+    
+    <div class="threshold-control">
+        <input type="range" id="thresholdSlider" min="0.01" max="1.0" step="0.01" value="0.50" 
+            class="threshold-slider" oninput="syncThreshold('slider')">
+        
+        <input type="number" id="thresholdInput" min="0.01" max="1.0" step="0.01" value="0.50" 
+            class="threshold-number-input" oninput="syncThreshold('input')">
+    </div>
+</div>
 
                 <div class="control-group">
                     <label>
@@ -729,9 +807,7 @@
                         Objects: 0
                     </div>
                 </div>
-                <img id="videoFeed"
-                    src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImdyYWQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmOGY5ZmE7c3RvcC1vcGFjaXR5OjEiIC8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojZTllY2VmO3N0b3Atb3BhY2l0eToxIiAvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JhZCkiLz48Y2lyY2xlIGN4PSI1MCUiIGN5PSI0MCUiIHI9IjUwIiBmaWxsPSJyZ2JhKDEwMiwgMTI2LCAyMzQsIDAuMikiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmb250LXdlaWdodD0iNjAwIiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+🎥IE5vIFZpZGVvIEZlZWQ8L3RleHQ+PHRleHQgeD0iNTAlIiB5PSI2NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OTk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkNhbWVyYSBvciB2aWRlbyBzdHJlYW0gd2lsbCBhcHBlYXIgaGVyZTwvdGV4dD48L3N2Zz4="
-                    alt="Video Feed">
+<img id="videoFeed" style="width: 100%; border-radius: 15px; object-fit: cover; min-height: 400px;" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZThlOGU4Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzU1NSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+V2FpdGluZyBmb3IgUHl0aG9uIFN0cmVhbS4uLjwvdGV4dD48L3N2Zz4=">
             </div>
 
             <div class="bottom-section">
