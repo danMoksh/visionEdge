@@ -432,419 +432,430 @@ class TelemetryIngestor:
 
 
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = ConfigurationManager().flask_secret
-socketio = SocketIO(app, cors_allowed_origins="*")
+class VideoPipelineWorker:
+    """
+    Multi-threaded video processing worker: handles camera/file capture,
+    YOLO inference (supporting both standard and oriented bounding boxes),
+    georeferenced snapshot logging, and real-time Socket.IO stream encoding.
+    """
+    def __init__(
+        self,
+        config: ConfigurationManager,
+        telemetry: TelemetryIngestor,
+        wpm: WaypointGenerator,
+        db: DatabaseHandler,
+        sio: SocketIO,
+    ):
+        self.config = config
+        self.telemetry = telemetry
+        self.wpm = wpm
+        self.db = db
+        self.sio = sio
 
-
-try:
-    model = YOLO(r"D:\FOD\FODSub\runs\detect\FOD_v695\weights\best.pt")
-    print("✅ YOLO loaded")
-except Exception as e:
-    print(f"❌ Error loading YOLO model: {e}")
-    model = None
-
-cap = None
-running = False
-video_writer = None
-detection_stats = {
-    'objects_detected': 0,
-    'fps': 0,
-    'confidence': 0,
-    'frame_count': 0
-}
-
-telemetry_data = {
-    'lat': 0.0,
-    'lon': 0.0,
-    'altitude': 0.0,
-    'heading': 0.0,
-    'roll': 0.0,
-    'pitch': 0.0
-}
-
-class TelemetryPoller:
-    def __init__(self):
-        self.url = "http://127.0.0.1:56781/mavlink/"
-        self.running = True
-        self.latest_telemetry = {
-            'lat': 0.0,
-            'lon': 0.0
-        }
-
-    def start(self):
-        threading.Thread(target=self.poll_loop, daemon=True).start()
-
-    def poll_loop(self):
-        global telemetry_data
-        while self.running:
-            try:
-                with urllib.request.urlopen(self.url, timeout=0.05) as response:
-                    contents = response.read().decode()
-                    parsed_json = json.loads(contents)
-                    alt = parsed_json.get("VFR_HUD", {}).get("msg", {}).get("alt", 0)
-                    heading = parsed_json.get("VFR_HUD", {}).get("msg", {}).get("heading", 0)
-                    roll = parsed_json.get("ATTITUDE", {}).get("msg", {}).get("roll", 0)
-                    pitch = parsed_json.get("ATTITUDE", {}).get("msg", {}).get("pitch", 0)
-                    lat = parsed_json.get("GPS_RAW_INT", {}).get("msg", {}).get("lat", 0) / 1e7
-                    lon = parsed_json.get("GPS_RAW_INT", {}).get("msg", {}).get("lon", 0) / 1e7
-
-                    telemetry_data.update({
-                        'altitude': alt,
-                        'heading': heading,
-                        'roll': roll,
-                        'pitch': pitch,
-                        'lat': lat,
-                        'lon': lon
-                    })
-
-                    socketio.emit('telemetry_update', telemetry_data)
-
-            except Exception as e:
-                print(f"MAVLink poll error: {e}")
-
-            time.sleep(0.1)
-
-    def stop(self):
+        self.conf_threshold = config.conf_threshold
+        self.frame_queue: queue.Queue = queue.Queue(maxsize=self.config.queue_max_size)
         self.running = False
-
-
-class VideoProcessor:
-    def __init__(self):
-        self.cap = None
-        self.running = False
-        self.video_writer = None
+        self.cap: Optional[cv2.VideoCapture] = None
+        self.video_writer: Optional[cv2.VideoWriter] = None
         self.save_video = False
-        self.conf_threshold = 0.05
-        self.stats = {
-            'objects_detected': 0,
-            'fps': 0,
-            'confidence': 0
-        }
-        self.last_logged_time = 0
 
-    def update_threshold(self, threshold):
+        self.model = None
+        self._load_model()
+
+        self.stats_lock = threading.Lock()
+        self.pipeline_stats = {"detected": 0, "fps": 0, "conf": 0.0, "target_yaw": 0.0}
+        self.last_write_time = 0.0
+        self.session_id: Optional[int] = None
+
+    def _load_model(self) -> None:
+        """Attempts to load YOLO model weights with graceful error handling."""
+        if os.path.exists(self.config.model_path):
+            try:
+                self.model = YOLO(self.config.model_path)
+                print(f"✅ Loaded YOLO model checkpoint: {self.config.model_path}")
+                return
+            except Exception as e:
+                print(f"⚠️ Error initializing model from {self.config.model_path}: {e}")
+        else:
+            print(f"ℹ️ Model checkpoint not found at {self.config.model_path}; proceeding in simulation/passthrough mode.")
+
+    def set_session(self, session_id: int) -> None:
+        self.session_id = session_id
+
+    def update_threshold(self, threshold: float) -> None:
         self.conf_threshold = float(threshold)
-        print(f"Updated confidence threshold to: {self.conf_threshold}")
-    
-    def detect_cameras(self):
-        """Try to detect camera using multiple backends"""
-        cameras = []
-        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
-        
-        for i in range(3):
-            for backend in backends:
-                try:
-                    cap = cv2.VideoCapture(i, backend)
-                    if cap.isOpened():
-                        cameras.append({'index': i, 'name': f'Camera {i} (Backend {backend})'})
-                        cap.release()
-                        break
-                except:
-                    continue
-        
-        return cameras if cameras else [{'index': 0, 'name': 'Default Camera'}]
+        print(f"🎯 Updated confidence threshold to: {self.conf_threshold:.2f}")
 
-    def start_camera(self, camera_index, save_video=False):
-        """Start camera detection"""
+    def detect_cameras(self) -> List[Dict[str, Any]]:
+        """Probe connected video capture devices on Linux and Windows."""
+        cameras = []
+        # Check standard video device indices
+        for i in range(4):
+            try:
+                test_cap = cv2.VideoCapture(i)
+                if test_cap.isOpened():
+                    cameras.append({"index": i, "name": f"Camera {i}"})
+                    test_cap.release()
+            except Exception:
+                continue
+        return cameras if cameras else [{"index": 0, "name": "Default Camera (0)"}]
+
+    def start_stream(self, source: Union[int, str], save_video: bool = False) -> Tuple[bool, str]:
+        """Start capturing from camera index or video file path."""
+        if self.running:
+            self.stop_stream()
+            time.sleep(0.2)
+
         try:
-            if self.running:
-                self.stop()
-                time.sleep(0.5)
-            
-            camera_index = int(camera_index)
-            self.cap = cv2.VideoCapture(camera_index)
-            
+            video_source = int(source) if str(source).isdigit() else source
+            self.cap = cv2.VideoCapture(video_source)
             if not self.cap.isOpened():
-                self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-                
+                # Attempt platform-specific fallback backend
+                self.cap = cv2.VideoCapture(video_source, cv2.CAP_ANY)
+
             if not self.cap.isOpened():
-                return False, "Failed to open camera"
+                return False, f"Failed to allocate video capture on source: {source}"
 
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.cap.set(cv2.CAP_PROP_FPS, 30)
 
             self.save_video = save_video
-            self.running = True
-
             if save_video:
-                self.setup_video_writer()
+                self._setup_video_writer()
 
-            threading.Thread(target=self.process_frames, daemon=True).start()
-            return True, "Camera started successfully"
+            self.running = True
+            threading.Thread(target=self._capture_worker, daemon=True).start()
+            threading.Thread(target=self._inference_worker, daemon=True).start()
+            return True, "Video pipeline activated successfully"
 
         except Exception as e:
-            return False, f"Error starting camera: {str(e)}"
+            return False, f"Stream initialization error: {str(e)}"
 
-    def start_video_file(self, video_path, save_video=False):
-        """Start processing video file"""
+    def _setup_video_writer(self) -> None:
         try:
-            if self.running:
-                self.stop()
-                time.sleep(0.5)
-            
-            self.cap = cv2.VideoCapture(video_path)
-            if not self.cap.isOpened():
-                self.cap = cv2.VideoCapture(video_path, cv2.CAP_FFMPEG)
-                
-            if not self.cap.isOpened():
-                return False, "Failed to open video file"
-            
-            self.save_video = save_video
-            self.running = True
-            
-            if save_video:
-                self.setup_video_writer()
-            
-            threading.Thread(target=self.process_frames, daemon=True).start()
-            return True, "Video processing started"
-            
-        except Exception as e:
-            return False, f"Error starting video: {str(e)}"
-    
-    def setup_video_writer(self):
-        """Setup video writer for saving output"""
-        try:
-            output_dir = "output_videos"
-            os.makedirs(output_dir, exist_ok=True)
-            
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(output_dir, f"yolo_output_{timestamp}.mp4")
-            
-            width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = self.cap.get(cv2.CAP_PROP_FPS)
-            fps = int(fps) if fps > 0 else 30
-            
+            out_path = os.path.join(self.config.output_vid_dir, f"fod_detect_{timestamp}.mp4")
+            w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+            h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+            fps = int(self.cap.get(cv2.CAP_PROP_FPS)) or 30
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            
-            print(f"Saving video to: {output_path}")
-            
+            self.video_writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+            print(f"Recording video to: {out_path}")
         except Exception as e:
-            print(f"Error setting up video writer: {e}")
-    
-    def process_frames(self):
-        """Process frames and emit to frontend"""
-        global telemetry_data
-        frame_count = 0
-        start_time = time.time()
-        
-        print("Starting frame processing...")
-        
+            print(f"Error configuring video writer: {e}")
+
+    def _capture_worker(self) -> None:
         while self.running and self.cap and self.cap.isOpened():
-            try:
-                ret, frame = self.cap.read()
-                if not ret:
-                    print("No more frames to read or failed to read frame")
-                    break
-                
-                objects_detected = 0
-                confidences = []
-                annotated_frame = frame.copy()
-                
-                if model:
-                    try:
-                        results = model.predict(
-                            source=frame, 
-                            conf=self.conf_threshold, 
-                            save=False,
-                            verbose=False
-                        )
-                        
-                        if results and len(results) > 0:
-                            result = results[0]
-                            boxes = result.boxes
-                            
-                            if boxes is not None and len(boxes) > 0:
-                                for box in boxes:
-                                    xyxy = box.xyxy[0].cpu().numpy().astype(int)
-                                    conf = box.conf[0].item()
-                                    
-                                    
-                                    label = f"FOD : {conf:.2f}"
-                                    cv2.rectangle(annotated_frame, tuple(xyxy[:2]), tuple(xyxy[2:]), (0, 255, 0), 2)
-                                    cv2.putText(annotated_frame, label, (xyxy[0], xyxy[1] - 10),
-                                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                                    
-                                    objects_detected += 1
-                                    confidences.append(conf)
-                        
-                        self.stats['objects_detected'] = objects_detected
-                        self.stats['confidence'] = float(np.mean(confidences) * 100) if confidences else 0
-                        
-                    except Exception as e:
-                        print(f"Error during YOLO inference: {e}")
-                        self.stats['objects_detected'] = 0
-                        self.stats['confidence'] = 0
-                else:
-                    print("Model not loaded, skipping detection")
-                    self.stats['objects_detected'] = 0
-                    self.stats['confidence'] = 0
-
-                now = time.time()
-                if objects_detected > 0 and now - self.last_logged_time >= 1.0:
-                    self.last_logged_time = now
-                    lat = telemetry_data.get('lat', 0.0)
-                    lon = telemetry_data.get('lon', 0.0)
-                    altitude = telemetry_data.get('altitude', 0.0)
-                    heading = telemetry_data.get('heading', 0.0)
-                    
-                    log_message = (f"DETECTION LOG: Objects={objects_detected} | "
-                                 f"Lat={lat:.7f} | Lon={lon:.7f} | "
-                                 f"Alt={altitude:.2f}m | Heading={heading:.1f}° | "
-                                 f"Confidence={self.stats['confidence']:.1f}%")
-                    print(log_message)
-                    
-                    socketio.emit('detection_log', {
-                        'objects_detected': objects_detected,
-                        'lat': lat,
-                        'lon': lon,
-                        'altitude': altitude,
-                        'heading': heading,
-                        'confidence': self.stats['confidence'],
-                        'timestamp': datetime.now().isoformat()
-                    })
-
-                frame_count += 1
-                if frame_count % 10 == 0:
-                    current_time = time.time()
-                    elapsed = current_time - start_time
-                    self.stats['fps'] = int(frame_count / elapsed) if elapsed > 0 else 0
-                
-                if self.video_writer and self.video_writer.isOpened():
-                    self.video_writer.write(annotated_frame)
-                
-                _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                frame_base64 = base64.b64encode(buffer).decode('utf-8')
-                
-                socketio.emit('frame_update', {
-                    'frame': frame_base64,
-                    'stats': self.stats,
-                    'telemetry': telemetry_data
-                })
-                
-                time.sleep(0.033)
-                
-            except Exception as e:
-                print(f"Error processing frame: {e}")
-                import traceback
-                traceback.print_exc()
+            ret, frame = self.cap.read()
+            if not ret:
                 break
-        
-        print("Frame processing stopped")
-        self.stop()
-    
-    def stop(self):
-        """Stop processing"""
-        print("Stopping video processor...")
+            if not self.frame_queue.full():
+                self.frame_queue.put(frame)
+            else:
+                try:
+                    self.frame_queue.get_nowait()
+                    self.frame_queue.put(frame)
+                except queue.Empty:
+                    pass
+            time.sleep(0.01)
         self.running = False
-        
+
+    def _inference_worker(self) -> None:
+        frames_processed = 0
+        t0 = time.time()
+
+        while self.running:
+            try:
+                frame = self.frame_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            h, w = frame.shape[:2]
+            annotated_frame = frame.copy()
+
+            det_count = 0
+            conf_list: List[float] = []
+            target_yaws: List[float] = []
+            t_data = self.telemetry.get_latest_data()
+
+            if self.model:
+                try:
+                    res = self.model.predict(
+                        annotated_frame, conf=self.conf_threshold, verbose=False
+                    )
+                    if res and len(res) > 0:
+                        result = res[0]
+                        # Handle Oriented Bounding Boxes (OBB)
+                        if hasattr(result, 'obb') and result.obb is not None and len(result.obb) > 0:
+                            for obb in result.obb:
+                                coords = obb.xyxyxyxy[0].cpu().numpy().astype(int)
+                                xywhr = obb.xywhr[0].cpu().numpy()
+                                c_val = float(obb.conf[0])
+                                theta_rad = float(xywhr[4])
+
+                                app_yaw = SpatialMath.calculate_approach_yaw(
+                                    theta_rad, t_data["heading"], self.config.camera_pitch_deg
+                                )
+
+                                det_count += 1
+                                conf_list.append(c_val)
+                                target_yaws.append(app_yaw)
+
+                                cv2.polylines(
+                                    annotated_frame, [coords], isClosed=True, color=(0, 255, 0), thickness=2
+                                )
+                                cv2.putText(
+                                    annotated_frame,
+                                    f"FOD {c_val:.2f} | Yaw {app_yaw:.0f}deg",
+                                    (coords[0][0], max(coords[0][1] - 8, 15)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    (0, 255, 0),
+                                    2,
+                                )
+
+                        # Handle Standard Bounding Boxes
+                        elif hasattr(result, 'boxes') and result.boxes is not None and len(result.boxes) > 0:
+                            for box in result.boxes:
+                                xyxy = box.xyxy[0].cpu().numpy().astype(int)
+                                c_val = float(box.conf[0])
+                                # Estimate orientation relative to frame center
+                                box_center_x = (xyxy[0] + xyxy[2]) / 2.0
+                                pixel_theta = math.atan2(box_center_x - (w / 2.0), h)
+                                app_yaw = SpatialMath.calculate_approach_yaw(
+                                    pixel_theta, t_data["heading"], self.config.camera_pitch_deg
+                                )
+
+                                det_count += 1
+                                conf_list.append(c_val)
+                                target_yaws.append(app_yaw)
+
+                                cv2.rectangle(annotated_frame, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (0, 255, 0), 2)
+                                cv2.putText(
+                                    annotated_frame,
+                                    f"FOD: {c_val:.2f}",
+                                    (xyxy[0], max(xyxy[1] - 10, 15)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.6,
+                                    (0, 255, 0),
+                                    2,
+                                )
+                except Exception as e:
+                    print(f"Error during YOLO inference: {e}")
+
+            avg_conf = (sum(conf_list) / len(conf_list) * 100) if conf_list else 0.0
+            primary_yaw = target_yaws[0] if target_yaws else t_data["heading"]
+
+            frames_processed += 1
+            if frames_processed % 10 == 0:
+                dt = time.time() - t0
+                current_fps = int(frames_processed / dt) if dt > 0 else 0
+            else:
+                with self.stats_lock:
+                    current_fps = self.pipeline_stats["fps"]
+
+            with self.stats_lock:
+                self.pipeline_stats = {
+                    "detected": det_count,
+                    "fps": current_fps,
+                    "conf": round(avg_conf, 1),
+                    "target_yaw": round(primary_yaw, 1),
+                }
+
+            # On detection, persist waypoint and georeferenced snapshot
+            if det_count > 0 and (time.time() - self.last_write_time >= 1.0):
+                self.last_write_time = time.time()
+                lat = t_data["lat"]
+                lon = t_data["lon"]
+                
+                # Write to mission waypoints file
+                self.wpm.write_waypoint(lat, lon, primary_yaw)
+
+                # Save snapshot image
+                fname = f"FOD_lat{lat:.6f}_lon{lon:.6f}_yaw{primary_yaw:.1f}.jpg"
+                fpath = os.path.join(self.config.snapshot_dir, fname)
+                cv2.imwrite(fpath, annotated_frame)
+
+                # Record in SQLite database
+                if self.session_id:
+                    self.db.insert_detection(
+                        self.session_id,
+                        lat,
+                        lon,
+                        avg_conf,
+                        det_count,
+                        primary_yaw,
+                        fpath,
+                    )
+
+                self.sio.emit(
+                    "detection_log",
+                    {
+                        "objects_detected": det_count,
+                        "lat": lat,
+                        "lon": lon,
+                        "altitude": t_data.get("altitude", 0.0),
+                        "heading": t_data.get("heading", 0.0),
+                        "yaw": primary_yaw,
+                        "confidence": round(avg_conf, 1),
+                        "timestamp": datetime.now().isoformat(),
+                        "image_path": fpath,
+                    },
+                )
+
+            if self.video_writer and self.video_writer.isOpened():
+                self.video_writer.write(annotated_frame)
+
+            # Encode frame to JPEG base64 for frontend canvas
+            _, buffer = cv2.imencode(".jpg", annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            self.sio.emit(
+                "frame_update",
+                {
+                    "frame": base64.b64encode(buffer).decode("utf-8"),
+                    "stats": self.pipeline_stats,
+                    "telemetry": t_data,
+                },
+            )
+
+    def stop_stream(self) -> None:
+        self.running = False
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                break
         if self.cap:
             self.cap.release()
             self.cap = None
-            
         if self.video_writer:
             self.video_writer.release()
             self.video_writer = None
-        
-        self.stats = {'objects_detected': 0, 'fps': 0, 'confidence': 0}
-        socketio.emit('detection_stopped')
+        self.sio.emit("detection_stopped")
 
-processor = VideoProcessor()
 
-@app.route('/')
-def index():
-    """Serve the main page"""
-    return render_template('index.html')
+class ApplicationServer:
+    """
+    Main web ground station server exposing REST and Socket.IO endpoints
+    for real-time FOD aerial telemetry, video streaming, and mission orchestration.
+    """
+    def __init__(self):
+        self.config = ConfigurationManager()
+        self.app = Flask(__name__)
+        self.app.config["SECRET_KEY"] = self.config.flask_secret
+        self.sio = SocketIO(self.app, cors_allowed_origins="*")
 
-@app.route('/api/cameras')
-def get_cameras():
-    """Get available cameras"""
-    cameras = processor.detect_cameras()
-    return jsonify(cameras)
+        self.db_mgr = DatabaseHandler(self.config)
+        self.wp_mgr = WaypointGenerator(self.config)
+        self.tel_mgr = TelemetryIngestor(self.config, self.db_mgr, self.sio)
+        self.vid_pipe = VideoPipelineWorker(
+            self.config, self.tel_mgr, self.wp_mgr, self.db_mgr, self.sio
+        )
 
-@app.route('/api/start_camera', methods=['POST'])
-def start_camera():
-    data = request.get_json()
-    camera_index = data.get('camera_index', 0)
-    save_video = data.get('save_video', False)
-    
-    try:
-        success, message = processor.start_camera(camera_index, save_video)
-        return jsonify({'success': success, 'message': message})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+        self._register_routes()
+        self._register_socketio_events()
 
-@app.route('/api/upload_video', methods=['POST'])
-def upload_video():
-    """Handle video file upload and then start detection"""
-    if 'video' not in request.files:
-        return jsonify({'success': False, 'message': 'No video file provided'})
+    def _register_routes(self) -> None:
+        @self.app.route("/")
+        def route_index():
+            return render_template("index.html")
 
-    file = request.files['video']
-    if file.filename == '':
-        return jsonify({'success': False, 'message': 'No file selected'})
+        @self.app.route("/api/cameras", methods=["GET"])
+        def route_cameras():
+            cameras = self.vid_pipe.detect_cameras()
+            return jsonify(cameras)
 
-    upload_dir = 'uploads'
-    os.makedirs(upload_dir, exist_ok=True)
+        @self.app.route("/api/start_camera", methods=["POST"])
+        def route_start_camera():
+            session_id = self.db_mgr.start_session(
+                self.config.model_path, self.config.camera_pitch_deg
+            )
+            self.tel_mgr.set_session(session_id)
+            self.vid_pipe.set_session(session_id)
 
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-    filepath = os.path.join(upload_dir, filename)
-    file.save(filepath)
+            data = request.get_json(silent=True) or {}
+            source = data.get("camera_index", 0)
+            save_video = data.get("save_video", False)
+            success, msg = self.vid_pipe.start_stream(source, save_video=save_video)
+            return jsonify({"success": success, "message": msg})
 
-    socketio.emit('upload_complete', {'message': 'Upload finished. Starting detection...'})
+        @self.app.route("/api/upload_video", methods=["POST"])
+        def route_upload_video():
+            if "video" not in request.files:
+                return jsonify({"success": False, "message": "No video file provided"})
+            file = request.files["video"]
+            if file.filename == "":
+                return jsonify({"success": False, "message": "No file selected"})
 
-    save_video = request.form.get('save_video') == 'true'
-    
-    def start_processing():
-        time.sleep(0.5)
-        success, message = processor.start_video_file(filepath, save_video)
-        if not success:
-            socketio.emit('error', {'message': message})
-    
-    threading.Thread(target=start_processing, daemon=True).start()
+            upload_dir = "uploads"
+            os.makedirs(upload_dir, exist_ok=True)
+            filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+            filepath = os.path.join(upload_dir, filename)
+            file.save(filepath)
 
-    return jsonify({'success': True, 'message': 'Upload successful. Starting detection...'})
+            session_id = self.db_mgr.start_session(
+                self.config.model_path, self.config.camera_pitch_deg
+            )
+            self.tel_mgr.set_session(session_id)
+            self.vid_pipe.set_session(session_id)
 
-@app.route('/api/stop')
-def stop_detection():
-    """Stop detection"""
-    processor.stop()
-    return jsonify({'success': True, 'message': 'Detection stopped'})
+            save_video = request.form.get("save_video") == "true"
+            success, msg = self.vid_pipe.start_stream(filepath, save_video=save_video)
+            return jsonify({"success": success, "message": msg, "filepath": filepath})
 
-@socketio.on('connect')
-def handle_connect():
-    print('Client connected')
-    emit('status', {'message': 'Connected to server'})
+        @self.app.route("/api/stop", methods=["GET", "POST"])
+        def route_stop():
+            self.vid_pipe.stop_stream()
+            return jsonify({"success": True, "message": "Detection stopped"})
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
+        @self.app.route("/api/waypoints", methods=["GET"])
+        def route_get_waypoints():
+            waypoints = self.wp_mgr.get_waypoints()
+            return jsonify({"success": True, "waypoints": waypoints})
 
-@socketio.on('threshold_update')
-def handle_threshold_update(data):
-    threshold = data.get('threshold', 0.25)
-    processor.update_threshold(threshold)
+        @self.app.route("/api/clear_gps_log", methods=["POST"])
+        def route_clear_log():
+            self.wp_mgr.purge_mission()
+            return jsonify({"success": True, "message": "Mission waypoints cleared"})
 
-@socketio.on('set_threshold')
-def update_threshold(data):
-    value = data.get('value', 0.25)
-    processor.update_threshold(value)
+        @self.app.route("/api/detections", methods=["GET"])
+        def route_get_detections():
+            limit = int(request.args.get("limit", 50))
+            detections = self.db_mgr.get_recent_detections(limit=limit)
+            return jsonify({"success": True, "detections": detections})
 
-if __name__ == '__main__':
-    os.makedirs('templates', exist_ok=True)
-    
-    telemetry_poller = TelemetryPoller()
-    telemetry_poller.start()
+    def _register_socketio_events(self) -> None:
+        @self.sio.on("connect")
+        def handle_connect():
+            print("Client connected to Web Ground Station")
+            self.sio.emit("status", {"message": "Connected to VisionEdge Server"})
 
-    print("Starting YOLO Detection Server...")
-    print("Access the application at: http://localhost:5000")
+        @self.sio.on("disconnect")
+        def handle_disconnect():
+            print("Client disconnected")
 
-    try:
-        socketio.run(app, debug=True, host='0.0.0.0', port=5000)
-    except KeyboardInterrupt:
-        print("\nShutting down server...")
-        telemetry_poller.stop()
-        processor.stop()
+        @self.sio.on("set_threshold")
+        def handle_set_threshold(data):
+            val = data.get("value", data.get("threshold", 0.25))
+            self.vid_pipe.update_threshold(val)
+
+        @self.sio.on("threshold_update")
+        def handle_threshold_update(data):
+            val = data.get("threshold", data.get("value", 0.25))
+            self.vid_pipe.update_threshold(val)
+
+    def launch(self, host: str = "0.0.0.0", port: int = 5000, debug: bool = False) -> None:
+        self.tel_mgr.start()
+        print(f"🚀 VisionEdge Ground Station Server running at http://{host}:{port}")
+        try:
+            self.sio.run(self.app, host=host, port=port, debug=debug)
+        except KeyboardInterrupt:
+            print("\nShutting down VisionEdge server...")
+        finally:
+            self.tel_mgr.stop()
+            self.vid_pipe.stop_stream()
+
+
+if __name__ == "__main__":
+    server = ApplicationServer()
+    server.launch()
