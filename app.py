@@ -338,6 +338,97 @@ class WaypointGenerator:
             self._ensure_header()
 
 
+class TelemetryIngestor:
+    """
+    Asynchronous telemetry ingestion thread polling drone/rover MAVLink telemetry
+    stream and broadcasting real-time updates over WebSockets.
+    """
+    def __init__(
+        self,
+        config: ConfigurationManager,
+        db_manager: DatabaseHandler,
+        socket_io: SocketIO,
+    ):
+        self.config = config
+        self.db = db_manager
+        self.sio = socket_io
+        self.running = False
+        self.current_frame = TelemetryFrame()
+        self.state_lock = threading.Lock()
+        self.session_id: Optional[int] = None
+
+    def set_session(self, session_id: int) -> None:
+        self.session_id = session_id
+
+    def start(self) -> None:
+        self.running = True
+        threading.Thread(target=self._ingest_loop, daemon=True).start()
+
+    def _ingest_loop(self) -> None:
+        last_db_write = time.time()
+        while self.running:
+            try:
+                with urllib.request.urlopen(
+                    self.config.telemetry_url, timeout=0.15
+                ) as response:
+                    data = json.loads(response.read().decode())
+                    with self.state_lock:
+                        self.current_frame.altitude = float(
+                            data.get("VFR_HUD", {}).get("msg", {}).get("alt", 0.0)
+                        )
+                        self.current_frame.heading = float(
+                            data.get("VFR_HUD", {}).get("msg", {}).get("heading", 0.0)
+                        )
+                        self.current_frame.roll = float(
+                            data.get("ATTITUDE", {}).get("msg", {}).get("roll", 0.0)
+                        )
+                        self.current_frame.pitch = float(
+                            data.get("ATTITUDE", {}).get("msg", {}).get("pitch", 0.0)
+                        )
+                        self.current_frame.lat = (
+                            float(data.get("GPS_RAW_INT", {}).get("msg", {}).get("lat", 0))
+                            / 1e7
+                        )
+                        self.current_frame.lon = (
+                            float(data.get("GPS_RAW_INT", {}).get("msg", {}).get("lon", 0))
+                            / 1e7
+                        )
+                        self.current_frame.satellites_visible = int(
+                            data.get("GPS_RAW_INT", {})
+                            .get("msg", {})
+                            .get("satellites_visible", 0)
+                        )
+                        self.current_frame.timestamp = time.time()
+
+                    # Emit telemetry frame to frontend dashboard
+                    self.sio.emit("telemetry_update", self.get_latest_data())
+
+                    # Periodic database write every 3 seconds
+                    if self.session_id and (time.time() - last_db_write > 3.0):
+                        self.db.insert_telemetry(self.session_id, self.current_frame)
+                        last_db_write = time.time()
+            except Exception:
+                pass
+            time.sleep(0.05)
+
+    def get_latest_data(self) -> Dict[str, Any]:
+        with self.state_lock:
+            return {
+                "lat": self.current_frame.lat,
+                "lon": self.current_frame.lon,
+                "heading": self.current_frame.heading,
+                "roll": self.current_frame.roll,
+                "pitch": self.current_frame.pitch,
+                "altitude": self.current_frame.altitude,
+                "satellites": self.current_frame.satellites_visible,
+                "timestamp": self.current_frame.timestamp,
+            }
+
+    def stop(self) -> None:
+        self.running = False
+
+
+
 
 
 
