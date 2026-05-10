@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+
+import rospy
+import math
+from std_msgs.msg import Float32MultiArray
+from nav_msgs.msg import Odometry
+from tf.transformations import euler_from_quaternion
+
+class WaypointFollower:
+    def __init__(self):
+        rospy.init_node('waypoint_follower')
+
+        # This MUST match the datum in your launch file
+        self.origin_lat = rospy.get_param('/navsat_transform_node/datum_latitude')
+        self.origin_lon = rospy.get_param('/navsat_transform_node/datum_longitude')
+
+        self.speeds_pub = rospy.Publisher('/motor_speeds', Float32MultiArray, queue_size=1)
+        rospy.Subscriber('/odometry/filtered', Odometry, self.odometry_callback)
+
+        self.current_pose = None
+        self.current_yaw = None
+        self.waypoints = [] # Waypoints will be added from another source
+        self.distance_threshold = 1.5
+        self.angular_kp = 1.5
+        self.linear_kp = 0.4
+        self.max_linear_speed = 0.8 # Max speed as a factor from 0 to 1
+        self.wheel_separation = 0.2
+
+    def odometry_callback(self, msg):
+        self.current_pose = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        (_, _, self.current_yaw) = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+    def run(self):
+        # In a real scenario, waypoints would be added to self.waypoints dynamically
+        # For this example, we'll add a test square
+        self.waypoints = [self.latlon_to_xy(22.7200, 75.8580), self.latlon_to_xy(22.7200, 75.8582)]
+        
+        rate = rospy.Rate(10)
+        while not rospy.is_shutdown():
+            if not self.waypoints or self.current_pose is None:
+                self.speeds_pub.publish(Float32MultiArray(data=[0.0, 0.0])) # Stop
+                rate.sleep()
+                continue
+
+            target_x, target_y = self.waypoints[0]
+            dx, dy = target_x - self.current_pose.x, target_y - self.current_pose.y
+            distance = math.sqrt(dx**2 + dy**2)
+            
+            if distance < self.distance_threshold:
+                self.waypoints.pop(0)
+                rospy.loginfo("Waypoint reached. %d waypoints remaining.", len(self.waypoints))
+                continue
+
+            angle_to_target = math.atan2(dy, dx)
+            angle_error = angle_to_target - self.current_yaw
+            if angle_error > math.pi: angle_error -= 2 * math.pi
+            if angle_error < -math.pi: angle_error += 2 * math.pi
+            
+            angular_vel = self.angular_kp * angle_error
+            linear_vel = self.linear_kp * distance
+            linear_vel = min(linear_vel, self.max_linear_speed)
+
+            if abs(angle_error) > math.pi / 2.0:
+                linear_vel = 0
+
+            left_speed = linear_vel - angular_vel * self.wheel_separation / 2.0
+            right_speed = linear_vel + angular_vel * self.wheel_separation / 2.0
+            
+            speeds_msg = Float32MultiArray(data=[left_speed, right_speed])
+            self.speeds_pub.publish(speeds_msg)
+            rate.sleep()
+    
+    def latlon_to_xy(self, lat2, lon2):
+        R = 6378137.0
+        lat1_rad, lon1_rad = math.radians(self.origin_lat), math.radians(self.origin_lon)
+        lat2_rad, lon2_rad = math.radians(lat2), math.radians(lon2)
+        x = R * (lon2_rad - lon1_rad) * math.cos((lat1_rad + lat2_rad) / 2)
+        y = R * (lat2_rad - lat1_rad)
+        return x, y
+
+if __name__ == '__main__':
+    follower = WaypointFollower()
+    follower.run()

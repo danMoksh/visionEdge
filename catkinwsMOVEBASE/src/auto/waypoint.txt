@@ -1,0 +1,1 @@
+ rostopic pub /add_waypoint sensor_msgs/NavSatFix "{latitude: 26.2292729, longitude: 78.2069341, altitude: 0.0}" -1
