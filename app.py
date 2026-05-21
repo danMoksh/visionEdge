@@ -252,6 +252,93 @@ class SpatialMath:
         return math.degrees(phi2), math.degrees(lambda2)
 
 
+class WaypointGenerator:
+    """
+    QGroundControl (QGC) WPL 110 compliant mission file generator.
+    Maintains mission waypoints serialized for PX4 / ArduPilot / ROS rover integration.
+    """
+    def __init__(self, config: ConfigurationManager):
+        self.filepath = config.mission_file
+        self.write_lock = threading.Lock()
+        self._ensure_header()
+
+    def _ensure_header(self) -> None:
+        with self.write_lock:
+            if not os.path.exists(self.filepath):
+                with open(self.filepath, "w", encoding="utf-8") as f:
+                    f.write("QGC WPL 110\n")
+
+    def _get_next_index(self) -> int:
+        if not os.path.exists(self.filepath):
+            return 0
+        try:
+            with open(self.filepath, "r", encoding="utf-8") as f:
+                return len(
+                    [
+                        line
+                        for line in f.readlines()
+                        if line.strip() and not line.startswith("QGC WPL")
+                    ]
+                )
+        except Exception:
+            return 0
+
+    def write_waypoint(self, lat: float, lon: float, approach_yaw: float) -> None:
+        """Appends a new navigation waypoint with target approach yaw to mission file."""
+        with self.write_lock:
+            index = self._get_next_index()
+            current_wp = 1 if index == 0 else 0
+
+            line = (
+                f"{index}\t{current_wp}\t3\t{MavlinkCommand.WAYPOINT.value}\t"
+                f"0\t0\t0\t{approach_yaw:.2f}\t"
+                f"{lat:.7f}\t{lon:.7f}\t0.00\t1\n"
+            )
+
+            mode = "a" if os.path.exists(self.filepath) else "w"
+            with open(self.filepath, mode, encoding="utf-8") as f:
+                if mode == "w":
+                    f.write("QGC WPL 110\n")
+                f.write(line)
+
+    def get_waypoints(self) -> List[Dict[str, Any]]:
+        """Parses and returns all stored waypoints for web visualization."""
+        waypoints = []
+        if not os.path.exists(self.filepath):
+            return waypoints
+        with self.write_lock:
+            try:
+                with open(self.filepath, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("QGC WPL"):
+                            continue
+                        parts = line.split("\t")
+                        if len(parts) >= 12:
+                            waypoints.append({
+                                "index": int(parts[0]),
+                                "current": int(parts[1]),
+                                "coord_frame": int(parts[2]),
+                                "command": int(parts[3]),
+                                "yaw": float(parts[7]),
+                                "lat": float(parts[8]),
+                                "lon": float(parts[9]),
+                                "alt": float(parts[10]),
+                                "autocontinue": int(parts[11]),
+                            })
+            except Exception as e:
+                print(f"Error reading waypoints: {e}")
+        return waypoints
+
+    def purge_mission(self) -> None:
+        """Clears all waypoints and reinitializes with clean header."""
+        with self.write_lock:
+            if os.path.exists(self.filepath):
+                os.remove(self.filepath)
+            self._ensure_header()
+
+
+
 
 
 app = Flask(__name__)
