@@ -1,6 +1,19 @@
+# IDE and Editor files
 .history/
 .vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+*.save
+*.save.*
+*.bak
+*.backup
+
+# Machine Learning weights, runs, and artifacts
 *.pt
+*.onnx
+*.engine
 .env
 runs/
 uploads/
@@ -8,3 +21,29 @@ output_videos/
 input_videos/
 input_images/
 excess/
+snapshots/
+
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# ROS / Catkin build & devel spaces
+catkin_ws/build/
+catkin_ws/devel/
+catkinwsMOVEBASE/build/
+catkinwsMOVEBASE/devel/
+.catkin_workspace
+catkin_ws/.catkin_workspace
+catkinwsMOVEBASE/.catkin_workspace
+
+# Database and logs
+*.db
+*.log
+*.bag
+
+# Graph viewer local tool
+graphweaver/
