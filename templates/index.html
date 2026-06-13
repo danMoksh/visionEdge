@@ -853,446 +853,345 @@
                         </div>
                     </div>
                     <script>
-                        let socket;
-                        let map;
-                        let telemetryChart;
-                        let currentMarker = null;
-                        let currentLat = 0;
-                        let currentLon = 0;
-                        let telemetryData = {
-                            altitude: [],
-                            roll: [],
-                            pitch: [],
-                            heading: [],
-                            timestamps: []
-                        };
+    let socket;
+    let map;
+    let telemetryChart;
+    let currentMarker = null;
+    let currentLat = 0;
+    let currentLon = 0;
+    let telemetryData = {
+        altitude: [],
+        roll: [],
+        pitch: [],
+        heading: [],
+        timestamps: []
+    };
 
-                        document.addEventListener('DOMContentLoaded', function () {
-                            initializeSocketIO();
-                            initializeMap();
-                            initializeTelemetryChart();
-                            loadAvailableCameras();
-                        });
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeSocketIO();
+        initializeMap();
+        initializeTelemetryChart();
+        loadAvailableCameras();
+    });
 
-                        function updateSatellitesDisplay(satellitesVisible) {
-                            const display = document.getElementById('satellitesDisplay');
-                            display.textContent = `Satellites: ${satellitesVisible || 0}`;
-                        }
+    // --- 1. Socket.IO Configuration ---
+    function initializeSocketIO() {
+        socket = io();
 
-                        function initializeSocketIO() {
-                            socket = io();
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            updateConnectionStatus(true);
+        });
 
-                            socket.on('connect', function () {
-                                console.log('Connected to server');
-                                updateConnectionStatus(true);
-                            });
+        socket.on('disconnect', () => {
+            console.log('Disconnected');
+            updateConnectionStatus(false);
+        });
 
-                            socket.on('disconnect', function () {
-                                console.log('Disconnected from server');
-                                updateConnectionStatus(false);
-                            });
+        // This receives the image from Python and updates the <img> tag
+        socket.on('frame_update', (data) => {
+            const videoFeed = document.getElementById('videoFeed');
+            videoFeed.src = 'data:image/jpeg;base64,' + data.frame;
+            
+            updateStats(data.stats);
+            updateTelemetryDisplay(data.telemetry);
+        });
 
-                            socket.on('frame_update', function (data) {
-                                updateVideoFeed(data.frame);
-                                updateStats(data.stats);
-                                updateTelemetryDisplay(data.telemetry);
-                            });
+        socket.on('telemetry_update', (data) => {
+            updateTelemetryData(data);
+            updateMapLocation(data.lat, data.lon);
+            updateCoordinatesDisplay(data.lat, data.lon);
+            document.getElementById('satellitesDisplay').textContent = `Satellites: ${data.satellites_visible || 0}`;
+        });
 
-                            socket.on('telemetry_update', function (data) {
-                                updateTelemetryData(data);
-                                updateMapLocation(data.lat, data.lon);
-                                updateCoordinatesDisplay(data.lat, data.lon);
-                                updateSatellitesDisplay(data.satellites_visible);
-                            });
+        socket.on('detection_log', (data) => addDetectionLog(data));
+        
+        socket.on('upload_complete', (data) => {
+            hideProcessingIndicator();
+            addLogEntry('info', data.message);
+        });
 
-                            socket.on('detection_log', function (data) {
-                                addDetectionLog(data);
-                            });
+        socket.on('detection_stopped', () => {
+            hideProcessingIndicator();
+            addLogEntry('info', 'Detection stopped');
+        });
 
-                            socket.on('upload_complete', function (data) {
-                                hideProcessingIndicator();
-                                addLogEntry('info', data.message);
-                            });
+        socket.on('error', (data) => {
+            hideProcessingIndicator();
+            addLogEntry('error', data.message);
+        });
+    }
 
-                            socket.on('detection_stopped', function () {
-                                hideProcessingIndicator();
-                                addLogEntry('info', 'Detection stopped');
-                            });
+    // --- 2. Camera Control Functions ---
+    async function loadAvailableCameras() {
+        try {
+            const response = await fetch('/api/cameras');
+            const cameras = await response.json();
+            const select = document.getElementById('cameraSelect');
+            select.innerHTML = '';
+            cameras.forEach(camera => {
+                const option = document.createElement('option');
+                option.value = camera.index;
+                option.textContent = camera.name;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading cameras:', error);
+            addLogEntry('error', 'Failed to load cameras');
+        }
+    }
 
-                            socket.on('error', function (data) {
-                                hideProcessingIndicator();
-                                addLogEntry('error', data.message);
-                            });
-                        }
+    async function startCamera() {
+        const cameraIndex = document.getElementById('cameraSelect').value;
+        const saveVideo = document.getElementById('saveVideo').checked;
+        
+        showProcessingIndicator();
 
-                        function initializeMap() {
-                            map = L.map('map').setView([28.6139, 77.2090], 13);
-
-                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                                attribution: '© OpenStreetMap contributors'
-                            }).addTo(map);
-
-                            const droneIcon = L.divIcon({
-                                className: 'custom-drone-marker',
-                                html: '🚁',
-                                iconSize: [30, 30],
-                                iconAnchor: [15, 15]
-                            });
-                        }
-
-                        function initializeTelemetryChart() {
-                            const ctx = document.getElementById('telemetryChart').getContext('2d');
-                            telemetryChart = new Chart(ctx, {
-                                type: 'line',
-                                data: {
-                                    labels: [],
-                                    datasets: [{
-                                        label: 'Altitude (m)',
-                                        data: [],
-                                        borderColor: '#667eea',
-                                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                                        tension: 0.4,
-                                        yAxisID: 'y'
-                                    }, {
-                                        label: 'Roll (°)',
-                                        data: [],
-                                        borderColor: '#e74c3c',
-                                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                                        tension: 0.4,
-                                        yAxisID: 'y1'
-                                    }, {
-                                        label: 'Pitch (°)',
-                                        data: [],
-                                        borderColor: '#f39c12',
-                                        backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                                        tension: 0.4,
-                                        yAxisID: 'y1'
-                                    }, {
-                                        label: 'Heading (°)',
-                                        data: [],
-                                        borderColor: '#27ae60',
-                                        backgroundColor: 'rgba(39, 174, 96, 0.1)',
-                                        tension: 0.4,
-                                        yAxisID: 'y2'
-                                    }]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    interaction: {
-                                        mode: 'index',
-                                        intersect: false,
-                                    },
-                                    scales: {
-                                        x: {
-                                            display: true,
-                                            title: {
-                                                display: true,
-                                                text: 'Time'
-                                            }
-                                        },
-                                        y: {
-                                            type: 'linear',
-                                            display: true,
-                                            position: 'left',
-                                            title: {
-                                                display: true,
-                                                text: 'Altitude (m)'
-                                            },
-                                        },
-                                        y1: {
-                                            type: 'linear',
-                                            display: true,
-                                            position: 'right',
-                                            title: {
-                                                display: true,
-                                                text: 'Roll/Pitch (°)'
-                                            },
-                                            grid: {
-                                                drawOnChartArea: false,
-                                            },
-                                        },
-                                        y2: {
-                                            type: 'linear',
-                                            display: false,
-                                            min: 0,
-                                            max: 360
-                                        }
-                                    },
-                                    plugins: {
-                                        legend: {
-                                            position: 'top',
-                                        },
-                                        tooltip: {
-                                            mode: 'index',
-                                            intersect: false,
-                                        }
-                                    }
-                                }
-                            });
-                        }
-
-                        async function loadAvailableCameras() {
-                            try {
-                                const response = await fetch('/api/cameras');
-                                const cameras = await response.json();
-                                const select = document.getElementById('cameraSelect');
-
-                                select.innerHTML = '';
-                                cameras.forEach(camera => {
-                                    const option = document.createElement('option');
-                                    option.value = camera.index;
-                                    option.textContent = camera.name;
-                                    select.appendChild(option);
-                                });
-                            } catch (error) {
-                                console.error('Error loading cameras:', error);
-                                addLogEntry('error', 'Failed to load available cameras');
-                            }
-                        }
-
-                        async function startCamera() {
-                            const cameraIndex = document.getElementById('cameraSelect').value;
-                            const saveVideo = document.getElementById('saveVideo').checked;
-
-                            showProcessingIndicator();
-
-                            try {
-                                const response = await fetch('/api/start_camera', {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                    },
-                                    body: JSON.stringify({
-                                        camera_index: parseInt(cameraIndex),
-                                        save_video: saveVideo
-                                    })
-                                });
-
-                                const result = await response.json();
-
-                                if (result.success) {
-                                    addLogEntry('info', result.message);
-                                } else {
-                                    hideProcessingIndicator();
-                                    addLogEntry('error', result.message);
-                                }
-                            } catch (error) {
-                                hideProcessingIndicator();
-                                addLogEntry('error', 'Failed to start camera: ' + error.message);
-                            }
-                        }
-
-                        async function uploadVideo() {
-                            const fileInput = document.getElementById('videoFile');
-                            const saveVideo = document.getElementById('saveVideo').checked;
-
-                            if (!fileInput.files[0]) {
-                                addLogEntry('error', 'Please select a video file first');
-                                return;
-                            }
-
-                            showProcessingIndicator();
-
-                            const formData = new FormData();
-                            formData.append('video', fileInput.files[0]);
-                            formData.append('save_video', saveVideo);
-
-                            try {
-                                const response = await fetch('/api/upload_video', {
-                                    method: 'POST',
-                                    body: formData
-                                });
-
-                                const result = await response.json();
-
-                                if (result.success) {
-                                    addLogEntry('info', result.message);
-                                } else {
-                                    hideProcessingIndicator();
-                                    addLogEntry('error', result.message);
-                                }
-                            } catch (error) {
-                                hideProcessingIndicator();
-                                addLogEntry('error', 'Failed to upload video: ' + error.message);
-                            }
-                        }
-
-                        async function stopDetection() {
-                            try {
-                                const response = await fetch('/api/stop');
-                                const result = await response.json();
-
-                                if (result.success) {
-                                    addLogEntry('info', result.message);
-                                    document.getElementById('videoFeed').src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImdyYWQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmOGY5ZmE7c3RvcC1vcGFjaXR5OjEiIC8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojZTllY2VmO3N0b3Atb3BhY2l0eToxIiAvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JhZCkiLz48Y2lyY2xlIGN4PSI1MCUiIGN5PSI0MCUiIHI9IjUwIiBmaWxsPSJyZ2JhKDEwMiwgMTI2LCAyMzQsIDAuMikiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjI0IiBmb250LXdlaWdodD0iNjAwIiBmaWxsPSIjNjY3ZWVhIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+🎥IE5vIFZpZGVvIEZlZWQ8L3RleHQ+PHRleHQgeD0iNTAlIiB5PSI2NSUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OTk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkNhbWVyYSBvciB2aWRlbyBzdHJlYW0gd2lsbCBhcHBlYXIgaGVyZTwvdGV4dD48L3N2Zz4=";
-                                } else {
-                                    addLogEntry('error', result.message);
-                                }
-                            } catch (error) {
-                                addLogEntry('error', 'Failed to stop detection: ' + error.message);
-                            }
-                        }
-
-                        function updateThreshold() {
-                            const threshold = document.getElementById('threshold').value;
-                            document.getElementById('thresholdValue').textContent = threshold;
-
-                            socket.emit('set_threshold', { value: parseFloat(threshold) });
-                            addLogEntry('info', `Detection threshold updated to ${threshold}`);
-                        }
-
-                        function updateConnectionStatus(connected) {
-                            const indicator = document.getElementById('connectionStatus');
-                            const text = document.getElementById('connectionText');
-
-                            if (connected) {
-                                indicator.className = 'status-indicator status-connected';
-                                text.textContent = 'Connected';
-                            } else {
-                                indicator.className = 'status-indicator status-disconnected';
-                                text.textContent = 'Disconnected';
-                            }
-                        }
-
-                        function updateVideoFeed(frameData) {
-                            const videoFeed = document.getElementById('videoFeed');
-                            videoFeed.src = 'data:image/jpeg;base64,' + frameData;
-                        }
-
-                        function updateStats(stats) {
-                            document.getElementById('objectsDetected').textContent = stats.objects_detected || 0;
-                            document.getElementById('confidence').textContent = (stats.confidence || 0).toFixed(1) + '%';
-                            document.getElementById('fps').textContent = stats.fps || 0;
-                            document.getElementById('detectionCount').textContent = 'Objects: ' + (stats.objects_detected || 0);
-                        }
-
-                        function updateTelemetryDisplay(telemetry) {
-                            if (telemetry && telemetry.altitude !== undefined) {
-                                document.getElementById('altitude').textContent = telemetry.altitude.toFixed(1) + 'm';
-                            }
-                        }
-
-                        function updateTelemetryData(data) {
-                            const now = new Date().toLocaleTimeString();
-
-                            if (telemetryData.timestamps.length >= 20) {
-                                telemetryData.timestamps.shift();
-                                telemetryData.altitude.shift();
-                                telemetryData.roll.shift();
-                                telemetryData.pitch.shift();
-                                telemetryData.heading.shift();
-                            }
-
-                            telemetryData.timestamps.push(now);
-                            telemetryData.altitude.push(data.altitude || 0);
-                            telemetryData.roll.push((data.roll || 0) * 180 / Math.PI);
-                            telemetryData.pitch.push((data.pitch || 0) * 180 / Math.PI);
-                            telemetryData.heading.push(data.heading || 0);
-
-                            telemetryChart.data.labels = telemetryData.timestamps;
-                            telemetryChart.data.datasets[0].data = telemetryData.altitude;
-                            telemetryChart.data.datasets[1].data = telemetryData.roll;
-                            telemetryChart.data.datasets[2].data = telemetryData.pitch;
-                            telemetryChart.data.datasets[3].data = telemetryData.heading;
-                            telemetryChart.update('none');
-
-                            document.getElementById('telemetryTimestamp').textContent = 'Last update: ' + now;
-                        }
-
-                        function updateMapLocation(lat, lon) {
-                            if (lat && lon && lat !== 0 && lon !== 0) {
-                                currentLat = lat;
-                                currentLon = lon;
-
-                                const position = [lat, lon];
-
-                                if (currentMarker) {
-                                    currentMarker.setLatLng(position);
-                                } else {
-                                    const droneIcon = L.divIcon({
-                                        className: 'custom-drone-marker',
-                                        html: '🚁',
-                                        iconSize: [30, 30],
-                                        iconAnchor: [15, 15]
-                                    });
-
-                                    currentMarker = L.marker(position, { icon: droneIcon }).addTo(map);
-                                    map.setView(position, 15);
-                                }
-                            }
-                        }
-
-                        function updateCoordinatesDisplay(lat, lon) {
-                            const display = document.getElementById('coordinatesDisplay');
-                            display.textContent = `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
-                        }
-
-                        function addDetectionLog(data) {
-                            const timestamp = new Date(data.timestamp).toLocaleTimeString();
-                            const gmapUrl = `https://maps.google.com/?q=${data.lat},${data.lon}`;
-
-                            const logMessage = `🎯 FOD Detected! Objects: ${data.objects_detected} | Confidence: ${data.confidence.toFixed(1)}% | Alt: ${data.altitude.toFixed(1)}m | ${timestamp}`;
-
-                            addLogEntry('detection', logMessage, gmapUrl);
-                        }
-
-                        function addLogEntry(type, message, gmapUrl = null) {
-                            const logContainer = document.getElementById('debugLog');
-                            const entry = document.createElement('div');
-                            entry.className = `log-entry ${type}`;
-
-                            const messageSpan = document.createElement('span');
-                            messageSpan.textContent = message;
-                            entry.appendChild(messageSpan);
-
-                            if (gmapUrl) {
-                                const link = document.createElement('a');
-                                link.href = gmapUrl;
-                                link.target = '_blank';
-                                link.className = 'gmap-link';
-                                link.textContent = 'View on Map';
-                                entry.appendChild(link);
-                            }
-
-                            const waitingMsg = logContainer.querySelector('.log-entry.info');
-                            if (waitingMsg && waitingMsg.textContent.includes('Waiting for data')) {
-                                waitingMsg.remove();
-                            }
-
-                            logContainer.insertBefore(entry, logContainer.firstChild);
-
-                            while (logContainer.children.length > 50) {
-                                logContainer.removeChild(logContainer.lastChild);
-                            }
-                        }
-
-                        function clearDebugLog() {
-                            const logContainer = document.getElementById('debugLog');
-                            logContainer.innerHTML = '<div class="log-entry info"><span>🔄 Log cleared</span></div>';
-                        }
-
-                        function showProcessingIndicator() {
-                            document.getElementById('processingIndicator').style.display = 'flex';
-                        }
-
-                        function hideProcessingIndicator() {
-                            document.getElementById('processingIndicator').style.display = 'none';
-                        }
-
-                        const style = document.createElement('style');
-                        style.textContent = `
-            .custom-drone-marker {
-                background: none;
-                border: none;
-                font-size: 24px;
-                text-align: center;
-                line-height: 30px;
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        try {
+            const response = await fetch('/api/start_camera', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    camera_index: parseInt(cameraIndex),
+                    save_video: saveVideo
+                })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                addLogEntry('info', 'Camera started successfully');
+            } else {
+                hideProcessingIndicator();
+                addLogEntry('error', result.message);
             }
-        `;
-                        document.head.appendChild(style);
-                    </script>
+        } catch (error) {
+            hideProcessingIndicator();
+            addLogEntry('error', 'Failed to connect to Python backend');
+        }
+    }
+
+    async function stopDetection() {
+        try {
+            const response = await fetch('/api/stop');
+            const result = await response.json();
+            addLogEntry('info', result.message);
+            // Reset image to placeholder
+            document.getElementById('videoFeed').src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjQ4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZThlOGU4Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzU1NSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+U3RyZWFtIFN0b3BwZWQ8L3RleHQ+PC/zdmc+";
+        } catch (error) {
+            addLogEntry('error', 'Error stopping detection');
+        }
+    }
+
+    async function uploadVideo() {
+        const fileInput = document.getElementById('videoFile');
+        const saveVideo = document.getElementById('saveVideo').checked;
+        if (!fileInput.files[0]) return addLogEntry('error', 'Select a file first');
+        
+        showProcessingIndicator();
+        const formData = new FormData();
+        formData.append('video', fileInput.files[0]);
+        formData.append('save_video', saveVideo);
+        
+        try {
+            const res = await fetch('/api/upload_video', { method: 'POST', body: formData });
+            const data = await res.json();
+            if(data.success) addLogEntry('info', data.message);
+            else { hideProcessingIndicator(); addLogEntry('error', data.message); }
+        } catch(e) {
+            hideProcessingIndicator();
+            addLogEntry('error', 'Upload failed');
+        }
+    }
+
+    // --- 3. UI Helper Functions ---
+    // --- Threshold Control Logic ---
+
+let thresholdDebounceTimer;
+
+function syncThreshold(source) {
+    const slider = document.getElementById('thresholdSlider');
+    const input = document.getElementById('thresholdInput');
+    let val = 0.50;
+
+    if (source === 'slider') {
+        val = parseFloat(slider.value);
+        input.value = val.toFixed(2); // Updates the number box immediately
+    } else if (source === 'input') {
+        val = parseFloat(input.value);
+        if (isNaN(val)) return; // Don't crash on empty delete
+        if (val > 1.0) val = 1.0;
+        if (val < 0.01) val = 0.01;
+        slider.value = val;
+    }
+
+    // Emit to backend immediately for that "Real Time" feel
+    // (If this causes lag, we can uncomment the debounce logic below)
+    if (socket && socket.connected) {
+        socket.emit('set_threshold', { value: val });
+    }
+}
+
+// Global Keyboard Shortcuts
+document.addEventListener('keydown', function(event) {
+    // Ignore keys if user is typing in the file upload or other text inputs
+    // BUT allow it if they are focused on the threshold input itself
+    const activeTag = document.activeElement.tagName;
+    if (activeTag === 'INPUT' && document.activeElement.id !== 'thresholdInput' && document.activeElement.id !== 'thresholdSlider') {
+        return;
+    }
+
+    const slider = document.getElementById('thresholdSlider');
+    const input = document.getElementById('thresholdInput');
+    let currentVal = parseFloat(slider.value);
+    let changed = false;
+
+    // Use brackets [ ] for 0.01 precision adjustments
+    if (event.key === '[' || event.key === 'ArrowLeft') {
+        currentVal = Math.max(0.01, currentVal - 0.01);
+        changed = true;
+    } else if (event.key === ']' || event.key === 'ArrowRight') {
+        currentVal = Math.min(1.0, currentVal + 0.01);
+        changed = true;
+    }
+
+    if (changed) {
+        // Fix floating point math errors (e.g. 0.590000001)
+        currentVal = Math.round(currentVal * 100) / 100;
+        
+        slider.value = currentVal;
+        input.value = currentVal.toFixed(2);
+        
+        // Visual feedback
+        input.style.backgroundColor = '#5a6fd6';
+        setTimeout(() => input.style.backgroundColor = '', 100);
+
+        syncThreshold('slider'); // Trigger the socket emit
+    }
+});
+
+    function updateConnectionStatus(connected) {
+        const indicator = document.getElementById('connectionStatus');
+        const text = document.getElementById('connectionText');
+        indicator.className = connected ? 'status-indicator status-connected' : 'status-indicator status-disconnected';
+        text.textContent = connected ? 'Connected' : 'Disconnected';
+    }
+
+    function updateStats(stats) {
+        if(!stats) return;
+        document.getElementById('objectsDetected').textContent = stats.objects_detected || 0;
+        document.getElementById('confidence').textContent = (stats.confidence || 0).toFixed(1) + '%';
+        document.getElementById('fps').textContent = stats.fps || 0;
+        document.getElementById('detectionCount').textContent = 'Objects: ' + (stats.objects_detected || 0);
+    }
+
+    function showProcessingIndicator() { document.getElementById('processingIndicator').style.display = 'flex'; }
+    function hideProcessingIndicator() { document.getElementById('processingIndicator').style.display = 'none'; }
+
+    function addLogEntry(type, message, url) {
+        const log = document.getElementById('debugLog');
+        const div = document.createElement('div');
+        div.className = `log-entry ${type}`;
+        div.innerHTML = `<span>${message}</span>` + (url ? `<a href="${url}" target="_blank" class="gmap-link">Map</a>` : '');
+        log.insertBefore(div, log.firstChild);
+    }
+
+function addDetectionLog(data) {
+        const time = new Date(data.timestamp).toLocaleTimeString();
+        
+        // Format coordinates to 6 decimal places for better readability
+        const lat = data.lat ? parseFloat(data.lat).toFixed(6) : '0.000000';
+        const lon = data.lon ? parseFloat(data.lon).toFixed(6) : '0.000000';
+
+        // Updated message string to include coordinates
+        const msg = `🎯 FOD: ${data.count} | 📍 ${lat}, ${lon} | ${time}`;
+        
+        // Fixed URL format for the "Map" button
+        const url = `https://www.google.com/maps?q=${data.lat},${data.lon}`;
+        
+        addLogEntry('detection', msg, url);
+    }
+
+    function clearDebugLog() {
+        document.getElementById('debugLog').innerHTML = '<div class="log-entry info"><span>🔄 Log cleared</span></div>';
+    }
+
+    // --- 4. Map & Chart Initialization ---
+    function initializeMap() {
+        map = L.map('map').setView([28.6139, 77.2090], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        
+        // Custom CSS for marker
+        const style = document.createElement('style');
+        style.textContent = `.custom-drone-marker { font-size: 24px; text-align: center; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }`;
+        document.head.appendChild(style);
+    }
+
+    function updateMapLocation(lat, lon) {
+        if (!lat || !lon) return;
+        const pos = [lat, lon];
+        if (currentMarker) currentMarker.setLatLng(pos);
+        else {
+            currentMarker = L.marker(pos, {
+                icon: L.divIcon({className: 'custom-drone-marker', html: '🚁', iconSize: [30, 30]})
+            }).addTo(map);
+        }
+        map.setView(pos, map.getZoom()); // Keep zoom, follow drone
+    }
+
+    function updateCoordinatesDisplay(lat, lon) {
+        document.getElementById('coordinatesDisplay').textContent = `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+    }
+
+    function initializeTelemetryChart() {
+        const ctx = document.getElementById('telemetryChart').getContext('2d');
+        telemetryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Alt (m)', data: [], borderColor: '#667eea', yAxisID: 'y' },
+                    { label: 'Roll (°)', data: [], borderColor: '#e74c3c', yAxisID: 'y1' },
+                    { label: 'Pitch (°)', data: [], borderColor: '#f39c12', yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { position: 'left', title: {display: true, text: 'Meters'} },
+                    y1: { position: 'right', grid: {drawOnChartArea: false}, title: {display: true, text: 'Degrees'} }
+                }
+            }
+        });
+    }
+
+    function updateTelemetryData(data) {
+        const now = new Date().toLocaleTimeString();
+        if (telemetryData.timestamps.length > 20) {
+            telemetryData.timestamps.shift();
+            telemetryData.altitude.shift();
+            telemetryData.roll.shift();
+            telemetryData.pitch.shift();
+        }
+        telemetryData.timestamps.push(now);
+        telemetryData.altitude.push(data.altitude || 0);
+        telemetryData.roll.push((data.roll || 0) * 180 / Math.PI);
+        telemetryData.pitch.push((data.pitch || 0) * 180 / Math.PI);
+
+        telemetryChart.data.labels = telemetryData.timestamps;
+        telemetryChart.data.datasets[0].data = telemetryData.altitude;
+        telemetryChart.data.datasets[1].data = telemetryData.roll;
+        telemetryChart.data.datasets[2].data = telemetryData.pitch;
+        telemetryChart.update('none');
+        
+        document.getElementById('telemetryTimestamp').textContent = 'Last update: ' + now;
+    }
+
+    function updateTelemetryDisplay(telemetry) {
+        if(telemetry && telemetry.altitude !== undefined) {
+             document.getElementById('altitude').textContent = telemetry.altitude.toFixed(1) + 'm';
+        }
+    }
+</script>
 </body>
 
 </html>
