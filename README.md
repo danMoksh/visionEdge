@@ -123,12 +123,63 @@ flowchart TD
 
 ## 🧷 Folder Structure
 
-| Path             | Description                         |
-|------------------|-------------------------------------|
-| `app.py`         | Core application logic              |
-| `templates/`     | Frontend assets (HTML files)        |
-| `README.md`      | Project documentation               |
-| `Mermaid.js Mind Map` *(Embedded)*    | Visual Overview of the System Architecture        |
+| Path                                  | Description                                                                     |
+|---------------------------------------|---------------------------------------------------------------------------------|
+| `app.py`                              | Core Ground Station server (Flask, SocketIO, MAVLink, SQLite, YOLO Pipeline)    |
+| `templates/index.html`                | Real-time web mission dashboard with live HUD, Leaflet map & dynamic threshold  |
+| `fod_mission.waypoints`               | Serialized QGroundControl WPL 110 mission file for autonomous navigation        |
+| `catkinwsMOVEBASE/`                   | Primary ROS 1 Melodic/Noetic workspace for autonomous ground rover              |
+| `catkinwsMOVEBASE/src/auto/`          | Navigation bridge, MoveBase actionlib client, diff-drive controller & launches |
+| `catkinwsMOVEBASE/src/compass_reader/`| HMC5883L digital compass & NEO-7M GPS sensor integration drivers               |
+| `catkinwsMOVEBASE/src/diff_drive/`    | Differential drive kinematics, odometry calculation, and GoToGoal actions       |
+| `catkinwsMOVEBASE/src/motorcontrol/`  | Hardware motor drivers and software PWM speed controllers                      |
+| `catkinwsMOVEBASE/src/mpu6050/`       | 6-DOF IMU accelerometer & gyroscope orientation drivers                         |
+| `catkinwsMOVEBASE/src/wheel_encoders/`| GPIO optical encoder tick counters for high-frequency wheel odometry           |
+| `FODs/`                               | Model training notebooks, exploratory datasets, and evaluation scripts          |
+| `README.md`                           | Comprehensive project architecture and deployment guide                        |
+
+---
+
+## 🚀 Quickstart & Launch Guide
+
+### 1. Ground Station Server
+
+Install dependencies:
+```bash
+pip install -r requirements.txt  # flask flask-socketio ultralytics opencv-python numpy python-dotenv
+```
+
+Launch the ground station dashboard:
+```bash
+python3 app.py
+```
+Open [http://localhost:5000](http://localhost:5000) to access the mission console.
+
+### 2. ROS Rover Navigation Stack
+
+Build the Catkin workspace:
+```bash
+cd catkinwsMOVEBASE
+catkin_make
+source devel/setup.bash
+```
+
+Launch complete autonomous navigation (sensors + EKF localization + move_base + motor controllers):
+```bash
+roslaunch auto start_autonomous.launch
+```
+
+Send manual waypoints or commands:
+```bash
+# Send test GPS waypoint (Latitude, Longitude)
+rostopic pub /add_waypoint sensor_msgs/NavSatFix "{latitude: 26.23085, longitude: 78.20620}"
+
+# Send map relative waypoint (X meters forward, Y meters lateral)
+rostopic pub /add_relative_waypoint geometry_msgs/Point "{x: 2.0, y: 0.5, z: 0.0}"
+
+# Send queue command (clear / pause / resume / stop / status)
+rostopic pub /waypoint_cmd std_msgs/String "data: 'status'"
+```
 
 
 
