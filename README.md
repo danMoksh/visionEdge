@@ -135,15 +135,56 @@ flowchart TD
 
 ---
 
-## 🔧 Work in Progress
+## 🔧 Autonomous Ground Rover & ROS Navigation Stack
 
-We are currently developing an **autonomous pick-and-place rover** that will work alongside the detection system to **remove detected FODs** from the runway or track in real time.
+The system integrates an **autonomous ground retrieval rover** designed to dispatch to marked FOD coordinates and clear runways in real-time.
 
-This rover will:
-- Be deployed upon detection confirmation
-- Navigate to the marked GPS coordinates
-- Pick up FODs using a robotic mechanism
-- Work autonomously or via manual override when needed
+### ROS Move Base Navigation Pipeline
+
+The rover runs a ROS Melodic/Noetic navigation stack located in `catkinwsMOVEBASE`:
+
+```
+[ Aerial Drone / YOLO Detection ]
+               │
+               ▼  (GPS Lat/Lon + Approach Yaw)
+      [ /add_waypoint ]
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ waypoint_to_move_base.py                                    │
+│ ├─ Geodesic Equirectangular Projection (Datum -> Map Frame) │
+│ ├─ Target Orientation Quaternion Computation                │
+│ ├─ Actionlib Goal Queue & Concurrency Management            │
+│ └─ Distance Feedback & Preemption Watchdog                  │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+               ▼  (MoveBaseGoal via Actionlib)
+┌─────────────────────────────────────────────────────────────┐
+│ ROS move_base Action Server                                 │
+│ ├─ Global Costmap (Static Map + Obstacle Inflation)         │
+│ ├─ Local Costmap (Rolling Window 6x6m, 0.05m Resolution)    │
+│ └─ TrajectoryPlannerROS (DWA Local Planner)                 │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼  (/cmd_vel: Twist)
+┌─────────────────────────────────────────────────────────────┐
+│ diff_drive_controller.py                                    │
+│ ├─ Differential Drive Inverse Kinematics                    │
+│ ├─ Motor Calibration Trims & Saturation Limiting            │
+│ └─ Watchdog Heartbeat (Auto-halt on telemetry timeout)      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼  (/motor_speeds: Float32MultiArray)
+                  [ Hardware Motor Drivers ]
+```
+
+### Sensor Fusion & Localization
+
+Localization is achieved through an Extended Kalman Filter (`robot_localization` EKF node):
+- **Wheel Encoders** (`wheel_encoders/wheel_encoder_node.py`): Optical pulse counters publishing wheel tick rates and odometry.
+- **IMU / MPU6050** (`mpu6050/mpu6050_calib.py`): 6-DOF accelerometer and gyroscope publishing angular velocities and linear accelerations to `/imu/data`.
+- **Compass & Magnetometer** (`compass_reader/hmc5883l.py` & `calib_compass.py`): Calibrated magnetic heading orientation with hard-iron offset compensation.
+- **GPS Telemetry** (`compass_reader/neo7mgps_calib.py`): NMEA parser publishing WGS-84 fixes to `/fix`, converted to map coordinates via `navsat_transform_node`.
 
 ---
 
