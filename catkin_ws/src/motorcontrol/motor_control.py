@@ -54,11 +54,6 @@ class MotorDriver:
         GPIO.output(self.IN2, GPIO.LOW)
         GPIO.output(self.IN3, GPIO.HIGH)
         GPIO.output(self.IN4, GPIO.LOW)
-        # Stop
-GPIO.output(IN1, GPIO.LOW)
-GPIO.output(IN2, GPIO.LOW)
-time.sleep(1)
-
 
     def reverse(self):
         rospy.loginfo("Motors moving backward")
@@ -66,11 +61,6 @@ time.sleep(1)
         GPIO.output(self.IN2, GPIO.HIGH)
         GPIO.output(self.IN3, GPIO.LOW)
         GPIO.output(self.IN4, GPIO.HIGH)
-        # Stop
-GPIO.output(IN1, GPIO.LOW)
-GPIO.output(IN2, GPIO.LOW)
-time.sleep(1)
-
 
     def stop(self):
         rospy.loginfo("Motors stopped")

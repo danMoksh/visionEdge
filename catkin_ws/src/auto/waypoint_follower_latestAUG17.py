@@ -133,7 +133,7 @@ class WaypointFollower:
             rospy.logwarn("No current pose available for relative waypoint")
             return
 
-	rospy.loginfo("Current pose: [%.2f, %.2f], yaw: %.2f rad (%.1f deg)", 
+        rospy.loginfo("Current pose: [%.2f, %.2f], yaw: %.2f rad (%.1f deg)", 
                   self.current_pose.x, self.current_pose.y, 
                   self.current_yaw, math.degrees(self.current_yaw))
 

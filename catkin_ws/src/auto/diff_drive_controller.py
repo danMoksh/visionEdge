@@ -1,162 +1,81 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import rospy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int32, Float32, Float32MultiArray
-import numpy as np
+from std_msgs.msg import Float32MultiArray
 
 class DiffDriveController:
+    """
+    Differential drive kinematic controller for 2-wheel ground rover.
+    Translates Twist (cmd_vel) messages into normalized left/right motor speed commands.
+    """
     def __init__(self):
-        rospy.init_node('diff_drive_controller', anonymous=False)
+        rospy.init_node('diff_drive_controller')
 
-        # Robot physical parameters
-        self.wheel_separation = rospy.get_param('~wheel_separation', 0.365)  # Distance between wheels (m)
-        self.ticks_per_meter = rospy.get_param('~ticks_per_meter', 1000)    # Encoder ticks per meter
-        self.max_speed = rospy.get_param('~max_speed', 0.6)                 # Max linear speed (m/s)
-        self.rate = rospy.get_param('~rate', 50)                            # Publish rate (Hz)
-        self.timeout = rospy.get_param('~timeout', 0.2)                     # Timeout for cmd_vel (s)
-
-        # PID parameters
-        self.Kp = rospy.get_param('~Kp', 10.0)
-        self.Ki = rospy.get_param('~Ki', 10.0)
-        self.Kd = rospy.get_param('~Kd', 0.001)
-        self.out_min = rospy.get_param('~out_min', -1000)
-        self.out_max = rospy.get_param('~out_max', 1000)
-
-        # Motor trim
+        # Load physical parameters from ROS parameter server with sensible defaults
+        self.wheel_base = rospy.get_param('~wheel_separation', rospy.get_param('~wheel_base', 0.365))
+        self.max_speed = rospy.get_param('~max_speed', 0.6)
         self.right_motor_trim = rospy.get_param('~right_motor_trim', 1.34)
+        self.left_motor_trim = rospy.get_param('~left_motor_trim', 1.0)
+        self.timeout = rospy.get_param('~timeout', 0.5)
+        self.rate_hz = rospy.get_param('~rate', 50)
 
-        # Publishers and Subscribers
-        # self.lwheel_pub = rospy.Publisher('~lwheel_desired_rate', Int32, queue_size=1)
-        # self.rwheel_pub = rospy.Publisher('~rwheel_desired_rate', Int32, queue_size=1)
-	self.motor_pub = rospy.Publisher('/motor_speeds', Float32MultiArray, queue_size=1)
+        self.last_cmd_time = rospy.Time.now()
 
-        rospy.Subscriber('~cmd_vel', Twist, self.cmd_vel_callback)
-        self.lwheel_ticks_sub = rospy.Subscriber('~lwheel_ticks', Int32, self.lwheel_ticks_callback)
-        self.rwheel_ticks_sub = rospy.Subscriber('~rwheel_ticks', Int32, self.rwheel_ticks_callback)
-        self.lwheel_rate_sub = rospy.Subscriber('~lwheel_rate', Float32, self.lwheel_rate_callback)
-        self.rwheel_rate_sub = rospy.Subscriber('~rwheel_rate', Float32, self.rwheel_rate_callback)
-
-        # PID state
-        self.last_error = {'left': 0.0, 'right': 0.0}
-        self.integral = {'left': 0.0, 'right': 0.0}
-        self.current_ticks = {'left': 0, 'right': 0}
-        self.current_rates = {'left': 0.0, 'right': 0.0}
-        self.target_rates = {'left': 0.0, 'right': 0.0}  # Initialize target_rates
-        self.last_time = rospy.get_rostime()
-        self.last_cmd_time = rospy.get_rostime()
-
-        # Initialize message objects
-        self.lwheel_msg = Int32()
-        self.rwheel_msg = Int32()
+        # ROS Subscriber and Publisher
+        rospy.Subscriber('/cmd_vel', Twist, self.cmd_vel_callback, queue_size=1)
+        self.motor_pub = rospy.Publisher('/motor_speeds', Float32MultiArray, queue_size=1)
 
         rospy.loginfo("Differential Drive Controller Initialized.")
-        rospy.loginfo("Wheel Separation: %.2f m", self.wheel_separation)
-        rospy.loginfo("Ticks per Meter: %d", self.ticks_per_meter)
-        rospy.loginfo("Max Speed: %.2f m/s", self.max_speed)
-        rospy.loginfo("Publish Rate: %d Hz", self.rate)
-        rospy.loginfo("Timeout: %.2f s", self.timeout)
-
-        # Start control loop
-        self.timer = rospy.Timer(rospy.Duration(1.0/self.rate), self.control_loop)
+        rospy.loginfo("Wheel Base: %.3f m | Max Speed: %.2f m/s | Right Trim: %.2f",
+                      self.wheel_base, self.max_speed, self.right_motor_trim)
 
     def cmd_vel_callback(self, msg):
-        """Handle incoming cmd_vel messages."""
-        self.last_cmd_time = rospy.get_rostime()
-        
-        # Convert linear and angular velocities to wheel velocities (m/s)
+        self.last_cmd_time = rospy.Time.now()
         linear_vel = msg.linear.x
         angular_vel = msg.angular.z
 
-        v_right = linear_vel + (angular_vel * self.wheel_separation / 2.0)
-        v_left = linear_vel - (angular_vel * self.wheel_separation / 2.0)
+        # Differential drive inverse kinematics:
+        # v_right = v + (omega * L / 2)
+        # v_left  = v - (omega * L / 2)
+        v_right = linear_vel + (angular_vel * self.wheel_base / 2.0)
+        v_left = linear_vel - (angular_vel * self.wheel_base / 2.0)
 
-        # Convert to ticks/second
-        self.target_rates = {
-            'left': v_left * self.ticks_per_meter,
-            'right': v_right * self.ticks_per_meter 
-        }
+        # Apply motor calibration trims
+        v_left_trimmed = v_left * self.left_motor_trim
+        v_right_trimmed = v_right * self.right_motor_trim
 
-    def lwheel_ticks_callback(self, msg):
-        """Store left wheel ticks."""
-        self.current_ticks['left'] = msg.data
+        # Scale wheel speeds to [-1.0, 1.0]
+        left_speed = self.scale_speed(v_left_trimmed)
+        right_speed = self.scale_speed(v_right_trimmed)
 
-    def rwheel_ticks_callback(self, msg):
-        """Store right wheel ticks."""
-        self.current_ticks['right'] = msg.data
+        self.publish_speeds(left_speed, right_speed)
 
-    def lwheel_rate_callback(self, msg):
-        """Store left wheel rate."""
-        self.current_rates['left'] = msg.data
+    def scale_speed(self, speed):
+        """Scales raw speed to [-1.0, 1.0] range based on max_speed."""
+        if self.max_speed <= 0.0:
+            return 0.0
+        scaled = speed / self.max_speed
+        return max(min(scaled, 1.0), -1.0)
 
-    def rwheel_rate_callback(self, msg):
-        """Store right wheel rate."""
-        self.current_rates['right'] = msg.data
-
-    def pid_control(self, target_rate, side):
-        """Apply PID control to achieve target wheel rate."""
-        current_time = rospy.get_rostime()
-        dt = (current_time - self.last_time).to_sec()
-
-        # Use actual rate from encoder feedback
-        current_rate = self.current_rates[side]
-
-        error = target_rate - current_rate
-        self.integral[side] += error * dt
-        # --- Add this line to clamp the integral term ---
-        self.integral[side] = max(min(self.integral[side], self.out_max), self.out_min)
-        # --------------------------------------------------
-        derivative = (error - self.last_error[side]) / dt if dt > 0 else 0.0
-
-        # PID output
-        output = (self.Kp * error + 
-                 self.Ki * self.integral[side] + 
-                 self.Kd * derivative)
-
-        # Clamp output
-        output = max(min(output, self.out_max), self.out_min)
-
-        self.last_error[side] = error
-        return int(output)
-
-    def control_loop(self, event):
-        """Main control loop running at specified rate."""
-        # Check for timeout and set zero velocities if timed out
-        if (rospy.get_rostime() - self.last_cmd_time).to_sec() > self.timeout:
-            self.target_rates = {'left': 0.0, 'right': 0.0}
-
-	# 1. Get the raw integer output from the PID controller and store it
-	lwheel_pid_out = self.pid_control(self.target_rates['left'], 'left')
-	rwheel_pid_out = self.pid_control(self.target_rates['right'], 'right')
-	
-	rwheel_pid_out_trimmed = rwheel_pid_out * self.right_motor_trim
-	        
-	# Normalize the PID output to the range [-1.0, 1.0]
-        # We divide by out_max which was set in the launch file (1000)
-        lwheel_speed_normalized = float(lwheel_pid_out) / self.out_max
-        rwheel_speed_normalized = float(rwheel_pid_out_trimmed) / self.out_max
-
-        # Create the message
+    def publish_speeds(self, left, right):
         motor_speeds_msg = Float32MultiArray()
-        motor_speeds_msg.data = [lwheel_speed_normalized, rwheel_speed_normalized]
-
-        # Publish the single message
+        motor_speeds_msg.data = [float(left), float(right)]
         self.motor_pub.publish(motor_speeds_msg)
 
-        self.last_time = rospy.get_rostime()
+    def run(self):
+        rate = rospy.Rate(self.rate_hz)
+        while not rospy.is_shutdown():
+            # Watchdog timeout to halt motors if cmd_vel stream drops
+            if (rospy.Time.now() - self.last_cmd_time).to_sec() > self.timeout:
+                self.publish_speeds(0.0, 0.0)
+            rate.sleep()
 
-    def shutdown(self):
-        """Cleanup on node shutdown."""
-        self.lwheel_msg.data = 0
-        self.rwheel_msg.data = 0
-        self.lwheel_pub.publish(self.lwheel_msg)
-        self.rwheel_pub.publish(self.rwheel_msg)
-        self.timer.shutdown()
 
 if __name__ == '__main__':
     try:
         controller = DiffDriveController()
-        rospy.on_shutdown(controller.shutdown)
-        rospy.spin()
+        controller.run()
     except rospy.ROSInterruptException:
         pass

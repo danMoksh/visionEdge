@@ -1,13 +1,11 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import rospy
 import Jetson.GPIO as GPIO
 import threading
 import time
 from std_msgs.msg import Float32
-
-# Using Python 2 print function
-from __future__ import print_function
 
 class MotorDriver:
     def __init__(self):
