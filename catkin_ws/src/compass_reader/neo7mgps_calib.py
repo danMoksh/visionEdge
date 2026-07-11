@@ -46,16 +46,7 @@ def read_calibrated_heading(bus, x_offset, y_offset):
         x_calibrated = x - x_offset
         y_calibrated = y - y_offset
 
-        # --- CORRECTED LOGIC for X-AXIS FORWARD MOUNTING ---
-        
-        # This formula correctly calculates a North-up heading
-        # when the sensor's X-axis is pointed forward.
-        heading_rad = math.atan2(-x_calibrated, -y_calibrated)
-
-        # Normalize the angle to be in the range 0 to 2*pi
-        if heading_rad < 0:
-            heading_rad += 2 * math.pi
-            
+        heading_rad = math.atan2(y_calibrated, x_calibrated)
         return heading_rad
         
     except Exception as e:
@@ -71,7 +62,7 @@ def compass_node():
     i2c_bus_num = rospy.get_param('~i2c_bus', 1)
     frame_id = rospy.get_param('~frame_id', 'compass_link')
     rate_hz = rospy.get_param('~rate', 10)
-    declination = rospy.get_param('~declination', 0.84)  # Magnetic declination in degrees (e.g., 10 for 10° East)
+    declination = rospy.get_param('~declination', -8.50)  # Magnetic declination in degrees (e.g., 10 for 10° East)
 
     rospy.loginfo("Using compass offsets: x=%s, y=%s, declination=%s degrees", x_offset, y_offset, declination)
     
@@ -103,7 +94,7 @@ def compass_node():
             rospy.loginfo("Heading: %.2f degrees", heading_deg)
 
             q = quaternion_from_euler(0, 0, heading_rad)
-	    rospy.loginfo("Quaternion: [%.2f, %.2f, %.2f, %.2f]", q[0], q[1], q[2], q[3])
+            rospy.loginfo("Quaternion: [%.2f, %.2f, %.2f, %.2f]", q[0], q[1], q[2], q[3])
             imu_msg = Imu()
             imu_msg.header.stamp = rospy.Time.now()
             imu_msg.header.frame_id = frame_id
@@ -154,10 +145,7 @@ def gps_node():
                 fix_msg.longitude = msg.longitude
                 fix_msg.altitude = float(msg.altitude) if msg.altitude else 0.0
 
-                if msg.gps_qual >= 0:
-                    fix_msg.status.status = fix_msg.status.STATUS_FIX
-                else:
-                    fix_msg.status.status = fix_msg.status.STATUS_NO_FIX
+                fix_msg.status.status = 2  # Force status to STATUS_SBAS_FIX
                 
                 fix_msg.position_covariance = [10.0, 0, 0, 0, 10.0, 0, 0, 0, 20.0]
                 fix_msg.position_covariance_type = fix_msg.COVARIANCE_TYPE_DIAGONAL_KNOWN
@@ -177,4 +165,4 @@ if __name__ == '__main__':
     elif len(sys.argv) > 1 and sys.argv[1] == 'compass':
         compass_node()
     else:
-        print "Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]"
+        print("Usage: rosrun your_package_name neo7mgps_calib.py [gps|compass]")
