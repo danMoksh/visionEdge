@@ -1,10 +1,10 @@
-# 🛩️ Autonomous FOD Detection System using VTOL Drone
+# ️ Autonomous FOD Detection System using VTOL Drone
 
 This project is a real-time Foreign Object Debris (FOD) detection system that uses YOLO ML Model on the server and a VTOL drone for automatic scanning and geo-tagging of debris on runways or racing circuits. Built for accuracy, safety, and automation.
 
 ---
 
-## 🔍 System Overview
+## System Overview
 
 A VTOL drone conducts aerial scans and streams live video to the server. The server uses a trained AI model to detect debris in real-time. If any FOD is found, it marks its location, retrieves precise GPS coordinates from a telemetry module, logs them, and alerts the ground team.
 
@@ -12,34 +12,34 @@ Our YOLO model is trained on a hybrid dataset of 50,000+ images, combining publi
 
 An automatic pick-and-place rover for FOD removal is currently a work in progress.
 
-## 📊 System Flowchart
+## System Flowchart
 
 ```mermaid
 flowchart TD
-    A[🛩️ VTOL Drone Launch] --> B[⚙️ Configure Flight Path]
-    B --> C[🚀 Start Autonomous Flight]
-    C --> D[📹 GoPro Camera + Live Stream]
-    D --> E[🤖 YOLO AI Processing]
-    E --> F{🔍 FOD Detected?}
-    F -->|✅ Yes| G[📍 Mark FOD + Get GPS]
-    G --> H[💾 Log to Database]
-    H --> I[🚨 Alert Ground Team]
-    I --> J{🏁 Flight Complete?}
-    F -->|❌ No| J
-    J -->|🔄 No| K[🗺️ Next Waypoint]
+    A[️ VTOL Drone Launch] --> B[️ Configure Flight Path]
+    B --> C[ Start Autonomous Flight]
+    C --> D[ GoPro Camera + Live Stream]
+    D --> E[ YOLO AI Processing]
+    E --> F{ FOD Detected?}
+    F -->| Yes| G[ Mark FOD + Get GPS]
+    G --> H[ Log to Database]
+    H --> I[ Alert Ground Team]
+    I --> J{ Flight Complete?}
+    F -->| No| J
+    J -->| No| K[️ Next Waypoint]
     K --> E
-    J -->|✅ Yes| L[🏠 Return Home & Land]
-    L --> M[🎯 Mission Complete]
+    J -->| Yes| L[ Return Home & Land]
+    L --> M[ Mission Complete]
     
     %% Manual Override
-    N[📡 Remote Control] -.->|⚡ Manual Override| O[🕹️ Manual Flight]
-    O --> P{🔄 Resume Auto?}
-    P -->|✅ Yes| C
-    P -->|❌ No| Q[🛬 Manual Landing]
+    N[ Remote Control] -.->| Manual Override| O[️ Manual Flight]
+    O --> P{ Resume Auto?}
+    P -->| Yes| C
+    P -->| No| Q[ Manual Landing]
     
     %% Future Enhancement
-    R[🚧 Future: Rover Integration] -.->|🔧 WIP| S[🤖 Auto FOD Removal]
-    H -.->|📍 Coordinates| R
+    R[ Future: Rover Integration] -.->| WIP| S[ Auto FOD Removal]
+    H -.->| Coordinates| R
     
     %% Beautiful Styling with Rich Colors and Effects
     classDef drone fill:#e1f5fe,stroke:#0277bd,stroke-width:4px,color:#01579b,font-weight:bold,font-size:14px
@@ -87,10 +87,10 @@ flowchart TD
     linkStyle 18 stroke:#2e7d32,stroke-width:4px,stroke-dasharray:8 8
     linkStyle 19 stroke:#2e7d32,stroke-width:4px,stroke-dasharray:8 8
 ```
-> ⚠️ Mermaid diagrams render only on the GitHub **website**. They may not display correctly in the GitHub **mobile app**.
+> ️ Mermaid diagrams render only on the GitHub **website**. They may not display correctly in the GitHub **mobile app**.
 ---
 
-## ⚙️ Components
+## ️ Components
 
 ### Hardware
 - **VTOL Drone** – Capable of autonomous flight and manual override  
@@ -107,7 +107,7 @@ flowchart TD
 
 ---
 
-## 🔁 Workflow
+## Workflow
 
 1. VTOL drone is launched and performs a configured autonomous flight
 2. It streams live video to the server via VTX/HDMI TX-RX for low latency
@@ -121,7 +121,7 @@ flowchart TD
 
 ---
 
-## 🧷 Folder Structure
+## Folder Structure
 
 | Path                                  | Description                                                                     |
 |---------------------------------------|---------------------------------------------------------------------------------|
@@ -140,7 +140,7 @@ flowchart TD
 
 ---
 
-## 🚀 Quickstart & Launch Guide
+## Quickstart & Launch Guide
 
 ### 1. Ground Station Server
 
@@ -186,7 +186,7 @@ rostopic pub /waypoint_cmd std_msgs/String "data: 'status'"
 
 ---
 
-## 🔧 Autonomous Ground Rover & ROS Navigation Stack
+## Autonomous Ground Rover & ROS Navigation Stack
 
 The system integrates an **autonomous ground retrieval rover** designed to dispatch to marked FOD coordinates and clear runways in real-time.
 
@@ -197,10 +197,10 @@ The rover runs a ROS Melodic/Noetic navigation stack located in `catkinwsMOVEBAS
 ```
 [ Aerial Drone / YOLO Detection ]
                │
-               ▼  (GPS Lat/Lon + Approach Yaw)
+                 (GPS Lat/Lon + Approach Yaw)
       [ /add_waypoint ]
                │
-               ▼
+               
 ┌─────────────────────────────────────────────────────────────┐
 │ waypoint_to_move_base.py                                    │
 │ ├─ Geodesic Equirectangular Projection (Datum -> Map Frame) │
@@ -209,7 +209,7 @@ The rover runs a ROS Melodic/Noetic navigation stack located in `catkinwsMOVEBAS
 │ └─ Distance Feedback & Preemption Watchdog                  │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-               ▼  (MoveBaseGoal via Actionlib)
+                 (MoveBaseGoal via Actionlib)
 ┌─────────────────────────────────────────────────────────────┐
 │ ROS move_base Action Server                                 │
 │ ├─ Global Costmap (Static Map + Obstacle Inflation)         │
@@ -217,7 +217,7 @@ The rover runs a ROS Melodic/Noetic navigation stack located in `catkinwsMOVEBAS
 │ └─ TrajectoryPlannerROS (DWA Local Planner)                 │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-                               ▼  (/cmd_vel: Twist)
+                                 (/cmd_vel: Twist)
 ┌─────────────────────────────────────────────────────────────┐
 │ diff_drive_controller.py                                    │
 │ ├─ Differential Drive Inverse Kinematics                    │
@@ -225,7 +225,7 @@ The rover runs a ROS Melodic/Noetic navigation stack located in `catkinwsMOVEBAS
 │ └─ Watchdog Heartbeat (Auto-halt on telemetry timeout)      │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-                               ▼  (/motor_speeds: Float32MultiArray)
+                                 (/motor_speeds: Float32MultiArray)
                   [ Hardware Motor Drivers ]
 ```
 
@@ -239,8 +239,63 @@ Localization is achieved through an Extended Kalman Filter (`robot_localization`
 
 ---
 
+## ️ Installation
 
-## 📜 License
+### 1. Prerequisites
+- **Python**: 3.9, 3.10, or 3.11
+- **ROS**: ROS Noetic or ROS 2 Humble (for rover navigation stack)
+- **CUDA**: Recommended for real-time YOLOv8 edge inference
+
+### 2. Environment Setup
+```bash
+# Clone the repository
+git clone https://github.com/danMoksh/visionEdge.git
+cd visionEdge
+
+# Create and activate Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install AI model & server dependencies
+pip install ultralytics torch torchvision opencv-python flask
+```
+
+### 3. Catkin Workspace Setup (Rover Autonomy)
+```bash
+cd catkin_ws
+catkin_make
+source devel/setup.bash
+cd ..
+```
+
+---
+
+## Usage
+
+### 1. Start Web Dashboard & FOD Telemetry Server
+```bash
+python3 app.py
+```
+Access the dashboard at `http://localhost:5000` to view the live drone video stream and GPS debris map.
+
+### 2. Run Autonomous Runway Mission
+```bash
+# Upload mission waypoints
+python3 -m scripts.load_waypoints --file fod_mission.waypoints
+
+# Launch rover retrieval node
+roslaunch diff_drive_controller rover.launch
+```
+
+---
+
+## Security
+
+For responsible vulnerability reporting, see [SECURITY.md](SECURITY.md).
+
+---
+
+## License
 
 This project is **not open-source**. All rights are **strictly reserved** by the original authors.  
 Any reproduction, redistribution, or unauthorized use of the code, models, or ideas is **strictly prohibited** without prior written permission.
@@ -249,7 +304,7 @@ See `LICENSE.md` for full legal terms.
 
 ---
 
-## 👨‍💻 Author
+## ‍ Author
 - Written and maintained by Moksh Dandotiya.
 - Contact: moksh@duck.com
 
