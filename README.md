@@ -1,3 +1,5 @@
+> **Engineering write-up:** Check out the full Vision Edge blog on my portfolio website: [moksh.is-a.dev/#blog/vision-edge](https://moksh.is-a.dev/#blog/vision-edge)
+
 # ️ Autonomous FOD Detection System using VTOL Drone
 
 This project is a real-time Foreign Object Debris (FOD) detection system that uses YOLO ML Model on the server and a VTOL drone for automatic scanning and geo-tagging of debris on runways or racing circuits. Built for accuracy, safety, and automation.
